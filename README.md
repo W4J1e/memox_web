@@ -2,6 +2,8 @@
 
 [memoX](https://github.com/W4J1e/memox) 的网页版本，与 Android 端数据完全兼容。
 
+![memoX_web](./public/memox_web.jpg)
+
 ## 功能特性
 
 - **笔记与清单** — 创建文本笔记和待办清单，支持富文本编辑
@@ -38,14 +40,14 @@ npm run build
 
 ## 部署
 
-### EdgeOne Pages
+### EdgeOne Pages（不推荐）
 
 1. Fork 或导入此仓库
 2. 在 [EdgeOne Makers](https://edgeone.cloud.tencent.com/pages) 中导入项目
 3. 构建命令填写 `npm run build`，输出目录填写 `dist`
 4. 项目已内置 `cloud-functions/__dav__/[[default]].js` Cloud Function 作为 WebDAV 代理，部署后自动生效，无需额外配置反向代理
 
-> **注意**：Cloud Function 请求体限制为 6MB，上传较大图片时可能受限。
+> **注意**：Cloud Function 请求体限制为 6MB，上传下载较大图片时可能受限，故不推荐。
 
 ### 自托管服务器
 
