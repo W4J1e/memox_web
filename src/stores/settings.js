@@ -525,5 +525,6 @@ export const useSettingsStore = defineStore('settings', () => {
     toggleLabelVisibility,
     isLabelHidden,
     saveLockOnStartup,
+    getClient,
   }
 })

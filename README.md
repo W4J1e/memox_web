@@ -41,9 +41,11 @@ npm run build
 ### EdgeOne Pages
 
 1. Fork 或导入此仓库
-2. 在 [EdgeOne Pages](https://edgeone.ai/product/pages) 中导入项目
+2. 在 [EdgeOne Makers](https://edgeone.cloud.tencent.com/pages) 中导入项目
 3. 构建命令填写 `npm run build`，输出目录填写 `dist`
-4. 若 WebDAV 服务器不支持 CORS，需在 EdgeOne 的边缘函数中实现 WebDAV 代理，或将项目部署在支持反向代理的服务器上
+4. 项目已内置 `cloud-functions/__dav__/[[default]].js` Cloud Function 作为 WebDAV 代理，部署后自动生效，无需额外配置反向代理
+
+> **注意**：Cloud Function 请求体限制为 6MB，上传较大图片时可能受限。
 
 ### 自托管服务器
 
