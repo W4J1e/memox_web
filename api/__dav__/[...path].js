@@ -1,6 +1,14 @@
-import http from 'node:http'
-import https from 'node:https'
-import { URL } from 'node:url'
+import http from 'http'
+import https from 'https'
+import { URL } from 'url'
+
+export const config = {
+  api: {
+    bodyParser: false,
+    responseLimit: false,
+  },
+  maxDuration: 10,
+}
 
 const MAX_REDIRECTS = 5
 
@@ -62,45 +70,48 @@ function bufferStream(stream) {
   })
 }
 
-export async function proxyRequest(request, fullUrl) {
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS_HEADERS })
+export default async function handler(req, res) {
+  Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v))
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end()
+    return
   }
 
-  const targetUrl = request.headers.get('x-webdav-url')
+  const targetUrl = req.headers['x-webdav-url']
   if (!targetUrl) {
-    return new Response('Missing X-WebDAV-Url header', { status: 400, headers: CORS_HEADERS })
+    res.status(400).send('Missing X-WebDAV-Url header')
+    return
   }
+
+  const targetBase = String(targetUrl).replace(/\/+$/, '')
+  const pathSegments = req.query.path
+  const pathSuffix = Array.isArray(pathSegments) ? pathSegments.join('/') : (pathSegments || '')
+  const fullUrl = pathSuffix ? `${targetBase}/${pathSuffix}` : `${targetBase}/`
 
   const headers = {}
-  const auth = request.headers.get('authorization')
-  if (auth) headers['Authorization'] = auth
-  const depth = request.headers.get('depth')
-  if (depth !== null) headers['Depth'] = depth
-  const destination = request.headers.get('destination')
-  if (destination) headers['Destination'] = destination
-  const contentType = request.headers.get('content-type')
-  if (contentType) headers['Content-Type'] = contentType
+  if (req.headers['authorization']) headers['Authorization'] = req.headers['authorization']
+  if (req.headers['depth'] !== undefined) headers['Depth'] = req.headers['depth']
+  if (req.headers['destination']) headers['Destination'] = req.headers['destination']
+  if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type']
 
   let bodyBuffer = null
-  if (!['GET', 'HEAD', 'DELETE', 'MKCOL'].includes(request.method)) {
-    const bodyBuf = await request.arrayBuffer()
-    bodyBuffer = Buffer.from(bodyBuf)
+  if (!['GET', 'HEAD', 'DELETE', 'MKCOL'].includes(req.method)) {
+    bodyBuffer = await bufferStream(req)
   }
 
   try {
-    const proxyRes = await makeRequest(fullUrl, { method: request.method, headers }, bodyBuffer)
+    const proxyRes = await makeRequest(fullUrl, { method: req.method, headers }, bodyBuffer)
     const respHeaders = { ...proxyRes.headers, ...CORS_HEADERS }
     delete respHeaders['strict-transport-security']
     delete respHeaders['content-security-policy']
     delete respHeaders['transfer-encoding']
-
-    const body = await bufferStream(proxyRes)
-    return new Response(body, {
-      status: proxyRes.statusCode || 500,
-      headers: respHeaders,
-    })
+    res.writeHead(proxyRes.statusCode || 500, respHeaders)
+    proxyRes.pipe(res)
   } catch (err) {
-    return new Response('Proxy error: ' + err.message, { status: 502, headers: CORS_HEADERS })
+    console.error('WebDAV proxy error:', err.message)
+    if (!res.headersSent) {
+      res.status(502).send('Proxy error: ' + err.message)
+    }
   }
 }

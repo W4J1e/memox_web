@@ -40,14 +40,16 @@ npm run build
 
 ## 部署
 
-### EdgeOne Pages（不推荐）
+### Vercel（推荐）
 
-1. Fork 或导入此仓库
-2. 在 [EdgeOne Makers](https://edgeone.cloud.tencent.com/pages) 中导入项目
-3. 构建命令填写 `npm run build`，输出目录填写 `dist`
-4. 项目已内置 `cloud-functions/__dav__/[[default]].js` Cloud Function 作为 WebDAV 代理，部署后自动生效，无需额外配置反向代理
+1. Fork 或导入此仓库到 GitHub
+2. 在 [Vercel](https://vercel.com) 中导入该项目
+3. 无需额外配置，直接部署
+4. 部署完成后访问 Vercel 分配的域名即可使用
 
-> **注意**：Cloud Function 请求体限制为 6MB，上传下载较大图片时可能受限，故不推荐。
+项目内置了 Vercel Serverless Function 作为 WebDAV 代理，`vercel.json` 已配置路由重写，`/__dav__/*` 请求会自动转发到 `api/__dav__/[...path].js`，由它代理 WebDAV 请求并添加 CORS 头。
+
+> **注意**：Vercel Hobby 计划函数超时 10s、请求体限制 4.5MB，Pro 计划为 60s / 50MB。
 
 ### 自托管服务器
 
