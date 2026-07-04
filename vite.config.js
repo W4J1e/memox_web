@@ -79,8 +79,8 @@ async function webdavProxyMiddleware(req, res, next) {
   if (!req.url.startsWith('/__dav__/')) return next()
 
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, DELETE, PROPFIND, MKCOL, OPTIONS, HEAD')
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Depth, Content-Type, X-WebDAV-Url')
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH')
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override')
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
@@ -95,6 +95,8 @@ async function webdavProxyMiddleware(req, res, next) {
     return
   }
 
+  const actualMethod = req.headers['x-method-override'] || req.method
+
   const targetBase = String(targetUrl).replace(/\/+$/, '')
   const pathSuffix = req.url.replace(/^\/__dav__\//, '')
   const fullUrl = `${targetBase}/${pathSuffix}`
@@ -105,16 +107,16 @@ async function webdavProxyMiddleware(req, res, next) {
   if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type']
 
   let bodyBuffer = null
-  if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'DELETE' && req.method !== 'MKCOL') {
+  if (actualMethod !== 'GET' && actualMethod !== 'HEAD' && actualMethod !== 'DELETE') {
     bodyBuffer = await bufferBody(req)
   }
 
   try {
-    const proxyRes = await makeRequest(fullUrl, { method: req.method, headers }, bodyBuffer)
+    const proxyRes = await makeRequest(fullUrl, { method: actualMethod, headers }, bodyBuffer)
     const respHeaders = { ...proxyRes.headers }
     respHeaders['Access-Control-Allow-Origin'] = '*'
-    respHeaders['Access-Control-Allow-Methods'] = 'GET, PUT, DELETE, PROPFIND, MKCOL, OPTIONS, HEAD'
-    respHeaders['Access-Control-Allow-Headers'] = 'Authorization, Depth, Content-Type, X-WebDAV-Url'
+    respHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH'
+    respHeaders['Access-Control-Allow-Headers'] = 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override'
     delete respHeaders['strict-transport-security']
     delete respHeaders['content-security-policy']
     res.writeHead(proxyRes.statusCode || 500, respHeaders)

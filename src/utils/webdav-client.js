@@ -59,7 +59,13 @@ export class WebDavClient {
       ...proxyHeaders,
       ...extraHeaders,
     }
-    const opts = { method, headers }
+    const STANDARD_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+    let actualMethod = method
+    if (this._shouldUseProxy() && !STANDARD_METHODS.includes(method)) {
+      headers['X-Method-Override'] = method
+      actualMethod = 'POST'
+    }
+    const opts = { method: actualMethod, headers }
     if (body !== null) {
       opts.body = body
     }

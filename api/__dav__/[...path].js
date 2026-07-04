@@ -14,8 +14,8 @@ const MAX_REDIRECTS = 5
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH',
-  'Access-Control-Allow-Headers': 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH',
+  'Access-Control-Allow-Headers': 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override',
   'Access-Control-Max-Age': '86400',
 }
 
@@ -84,6 +84,9 @@ export default async function handler(req, res) {
     return
   }
 
+  // Tunnel non-standard methods via X-Method-Override
+  const actualMethod = req.headers['x-method-override'] || req.method
+
   const targetBase = String(targetUrl).replace(/\/+$/, '')
   const pathSegments = req.query.path
   const pathSuffix = Array.isArray(pathSegments) ? pathSegments.join('/') : (pathSegments || '')
@@ -96,12 +99,12 @@ export default async function handler(req, res) {
   if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type']
 
   let bodyBuffer = null
-  if (!['GET', 'HEAD', 'DELETE', 'MKCOL'].includes(req.method)) {
+  if (!['GET', 'HEAD', 'DELETE'].includes(actualMethod)) {
     bodyBuffer = await bufferStream(req)
   }
 
   try {
-    const proxyRes = await makeRequest(fullUrl, { method: req.method, headers }, bodyBuffer)
+    const proxyRes = await makeRequest(fullUrl, { method: actualMethod, headers }, bodyBuffer)
     const respHeaders = { ...proxyRes.headers, ...CORS_HEADERS }
     delete respHeaders['strict-transport-security']
     delete respHeaders['content-security-policy']
