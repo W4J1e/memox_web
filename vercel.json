@@ -1,5 +1,10 @@
 {
   "rewrites": [
-    { "source": "/__dav__/:path*", "destination": "/api/__dav__/:path*" }
-  ]
+    { "source": "/__dav__/:path*", "destination": "/api/dav/:path*" }
+  ],
+  "functions": {
+    "api/dav/[...path].js": {
+      "memory": 1024
+    }
+  }
 }
