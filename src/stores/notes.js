@@ -106,6 +106,7 @@ export const useNotesStore = defineStore('notes', () => {
     if (note.folder === 'DELETED') {
       await dbDeleteNote(id)
       notes.value = notes.value.filter(n => n.id !== id)
+      try { await useSettingsStore().addTombstone(id) } catch {}
     } else {
       note.folder = 'DELETED'
       note.modifiedTimestamp = Date.now()
@@ -124,12 +125,14 @@ export const useNotesStore = defineStore('notes', () => {
   async function permanentDeleteNote(id) {
     await dbDeleteNote(id)
     notes.value = notes.value.filter(n => n.id !== id)
+    try { await useSettingsStore().addTombstone(id) } catch {}
   }
 
   async function emptyTrash() {
     const deleted = notes.value.filter(n => n.folder === 'DELETED')
     for (const note of deleted) {
       await dbDeleteNote(note.id)
+      try { await useSettingsStore().addTombstone(note.id) } catch {}
     }
     notes.value = notes.value.filter(n => n.folder !== 'DELETED')
   }

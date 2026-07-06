@@ -122,19 +122,24 @@ export const useSettingsStore = defineStore('settings', () => {
       if (existingRemoteNames.has(fn)) continue
       try {
         const blob = await getAttachment(fn)
-        if (!blob || blob.size === 0) continue
+        if (!blob || blob.size === 0) {
+          console.warn('[memoX] No local attachment for:', fn)
+          continue
+        }
         const targetDir = getAttachmentDir(fn)
-        const ok = await client.upload(`${targetDir}${fn}`, blob)
+        const targetPath = `${targetDir}${fn}`
+        const ok = await client.upload(targetPath, blob)
         if (ok) {
           uploaded++
-          console.log('[memoX] Uploaded attachment:', fn, blob.size, 'bytes')
+          console.log('[memoX] Uploaded attachment:', targetPath, blob.size, 'bytes')
+        } else {
+          console.warn('[memoX] Upload failed for:', targetPath)
         }
       } catch (e) {
         console.warn('[memoX] Failed to upload', fn, e.message)
       }
     }
 
-    console.log('[memoX] uploadAttachments done:', uploaded, 'files')
     return uploaded
   }
 
@@ -160,8 +165,6 @@ export const useSettingsStore = defineStore('settings', () => {
       for (const n of names) neededFileNames.add(n)
     }
 
-    console.log('[memoX] syncAttachments: need', neededFileNames.size, 'files:', Array.from(neededFileNames))
-
     let downloaded = 0
     if (neededFileNames.size === 0) return downloaded
 
@@ -178,12 +181,8 @@ export const useSettingsStore = defineStore('settings', () => {
     for (const dir of searchDirs) {
       try {
         await listAllFiles(client, dir, allRemoteFiles)
-      } catch (e) {
-        console.warn('[memoX] Error scanning', dir, e.message)
-      }
+      } catch {}
     }
-
-    console.log('[memoX] Found', allRemoteFiles.length, 'remote attachment files')
 
     const remoteFileMap = new Map()
     for (const f of allRemoteFiles) {
@@ -194,23 +193,16 @@ export const useSettingsStore = defineStore('settings', () => {
 
     for (const fn of Array.from(neededFileNames)) {
       const remotePath = remoteFileMap.get(fn)
-      if (!remotePath) {
-        console.warn('[memoX] Remote file not found for:', fn)
-        continue
-      }
+      if (!remotePath) continue
       try {
         const blob = await client.downloadBlob(remotePath)
         if (blob && blob.size > 0) {
           await putAttachment(fn, blob)
           downloaded++
-          console.log('[memoX] Downloaded attachment:', fn, blob.size, 'bytes')
         }
-      } catch (e) {
-        console.warn('[memoX] Failed to download', fn, e.message)
-      }
+      } catch {}
     }
 
-    console.log('[memoX] syncAttachments done:', downloaded, 'new files')
     return downloaded
   }
 
