@@ -27,16 +27,6 @@
           <span class="text-xs text-gray-400 ml-auto">{{ notesStore.activeNotes.length }}</span>
         </div>
 
-        <div
-          class="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors"
-          :class="notesStore.currentFolder === 'DELETED' ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'"
-          @click="selectFolder('DELETED')"
-        >
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-          <span class="text-sm font-medium">回收站</span>
-          <span class="text-xs text-gray-400 ml-auto">{{ notesStore.deletedNotes.length }}</span>
-        </div>
-
         <!-- Labels -->
         <div v-if="notesStore.allLabels.length || hiddenLabelsToShow.length" class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
           <h3 class="px-3 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">标签</h3>

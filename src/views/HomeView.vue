@@ -72,14 +72,6 @@
           :collapsed="sidebarCollapsed"
           @click="toggleFavoriteFilter"
         />
-        <NavItem
-          icon="trash"
-          :label="sidebarCollapsed ? '' : '回收站'"
-          :active="notesStore.currentFolder === 'DELETED'"
-          :count="notesStore.deletedNotes.length"
-          :collapsed="sidebarCollapsed"
-          @click="selectFolder('DELETED')"
-        />
 
         <!-- Labels section -->
         <div v-if="!sidebarCollapsed && (notesStore.allLabels.length || hiddenLabelsToShow.length)" class="pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
@@ -222,31 +214,7 @@
 
       <!-- Notes list -->
       <div class="flex-1 overflow-y-auto">
-        <template v-if="notesStore.currentFolder === 'DELETED'">
-          <div v-if="notesStore.deletedNotes.length === 0" class="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
-            <svg class="w-16 h-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            <p class="text-lg">回收站为空</p>
-          </div>
-          <div v-else class="divide-y divide-gray-100 dark:divide-gray-700">
-            <div
-              v-for="note in notesStore.deletedNotes"
-              :key="note.id"
-              class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors flex items-center gap-3"
-              @click="selectNote(note)"
-            >
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{{ note.title || '(无标题)' }}</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(note.timestamp) }}</div>
-              </div>
-              <button @click.stop="notesStore.restoreNote(note.id)" class="text-sm text-green-500 hover:text-green-600 px-2 py-1">恢复</button>
-              <button @click.stop="permanentDelete(note.id)" class="text-sm text-red-500 hover:text-red-600 px-2 py-1">删除</button>
-            </div>
-          </div>
-        </template>
-
-        <template v-else>
+        <template>
           <div v-if="displayedNotes.length === 0 && !notesStore.loading" class="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
             <svg class="w-20 h-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -319,7 +287,6 @@
               @img-error="onListImgError(note.id)"
             />
           </div>
-        </template>
       </div>
     </section>
 
@@ -369,10 +336,7 @@
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             <div class="ml-auto flex items-center gap-1">
-              <button v-if="selectedNote?.folder === 'DELETED'" @click="restoreNote" class="fmt-btn" title="恢复" type="button">
-                <svg class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-              </button>
-              <button @click="deleteNote" class="fmt-btn hover:text-red-500" :title="selectedNote?.folder === 'DELETED' ? '永久删除' : '删除'" type="button">
+              <button @click="deleteNote" class="fmt-btn hover:text-red-500" title="删除" type="button">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
               </button>
             </div>
@@ -560,7 +524,6 @@ const storagePercent = computed(() => {
 })
 
 const currentViewTitle = computed(() => {
-  if (notesStore.currentFolder === 'DELETED') return '回收站'
   if (notesStore.searchQuery) return '搜索结果'
   if (notesStore.currentLabel) return `标签: ${notesStore.currentLabel}`
   if (selectedFavorite.value) return '收藏'
@@ -659,35 +622,10 @@ async function createNewNote(type) {
 
 async function deleteNote() {
   if (!selectedNote.value) return
-  if (selectedNote.value.folder === 'DELETED') {
-    if (confirm('确定永久删除此笔记？此操作不可撤销。')) {
-      const id = selectedNote.value.id
-      await notesStore.permanentDeleteNote(id)
-      await settingsStore.addTombstone(id)
-      selectedNote.value = null
-    }
-  } else {
-    if (confirm('确定删除此笔记？将移至回收站。')) {
-      const id = selectedNote.value.id
-      await notesStore.deleteNoteFromFolder(id)
-      selectedNote.value = null
-    }
-  }
-}
-
-async function restoreNote() {
-  if (!selectedNote.value) return
-  await notesStore.restoreNote(selectedNote.value.id)
-  selectedNote.value = null
-}
-
-async function permanentDelete(id) {
-  if (confirm('确定永久删除？此操作不可撤销。')) {
+  if (confirm('确定删除此笔记？此操作不可撤销。')) {
+    const id = selectedNote.value.id
     await notesStore.permanentDeleteNote(id)
-    await settingsStore.addTombstone(id)
-    if (selectedNote.value?.id === id) {
-      selectedNote.value = null
-    }
+    selectedNote.value = null
   }
 }
 

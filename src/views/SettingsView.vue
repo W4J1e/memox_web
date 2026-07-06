@@ -225,10 +225,6 @@
               <span class="text-sm text-gray-600 dark:text-gray-400">本地笔记数量</span>
               <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ notesStore.notes.length }}</span>
             </div>
-            <div class="flex items-center justify-between">
-              <span class="text-sm text-gray-600 dark:text-gray-400">回收站</span>
-              <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ notesStore.deletedNotes.length }}</span>
-            </div>
             <div class="flex gap-2 pt-2">
               <button @click="onExportClick" class="btn-secondary flex-1">导出数据</button>
               <button @click="clearAllData" class="btn-danger flex-1">清除所有数据</button>

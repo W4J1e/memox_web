@@ -105,6 +105,8 @@ export const useSettingsStore = defineStore('settings', () => {
       for (const n of names) neededFileNames.add(n)
     }
 
+    console.log('[memoX] uploadAttachments: need', neededFileNames.size, 'files:', [...neededFileNames])
+
     if (neededFileNames.size === 0) return 0
 
     let uploaded = 0
