@@ -1,3 +1,7 @@
+export const config = {
+  runtime: 'edge',
+}
+
 export const maxDuration = 10
 
 const CORS = {
@@ -9,41 +13,39 @@ const CORS = {
 
 const MAX_REDIRECTS = 5
 
-export default {
-  async fetch(request) {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: CORS })
-    }
+export default async function handler(request) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS })
+  }
 
-    const targetUrl = request.headers.get('x-webdav-url')
-    if (!targetUrl) {
-      return new Response('Missing X-WebDAV-Url header', { status: 400, headers: CORS })
-    }
+  const targetUrl = request.headers.get('x-webdav-url')
+  if (!targetUrl) {
+    return new Response('Missing X-WebDAV-Url header', { status: 400, headers: CORS })
+  }
 
-    const method = request.headers.get('x-method-override') || request.method
-    const url = new URL(request.url)
-    const pathAfter = url.pathname.replace(/^\/api\/dav\//, '')
-    const targetBase = targetUrl.replace(/\/+$/, '')
-    const fullUrl = pathAfter ? `${targetBase}/${pathAfter}${url.search}` : `${targetBase}${url.search}`
+  const method = request.headers.get('x-method-override') || request.method
+  const url = new URL(request.url)
+  const pathAfter = url.pathname.replace(/^\/api\/dav\//, '')
+  const targetBase = targetUrl.replace(/\/+$/, '')
+  const fullUrl = pathAfter ? `${targetBase}/${pathAfter}${url.search}` : `${targetBase}${url.search}`
 
-    const headers = {}
-    const auth = request.headers.get('authorization')
-    if (auth) headers['Authorization'] = auth
-    const depth = request.headers.get('depth')
-    if (depth !== null) headers['Depth'] = depth
-    const dest = request.headers.get('destination')
-    if (dest) headers['Destination'] = dest
-    const ct = request.headers.get('content-type')
-    if (ct) headers['Content-Type'] = ct
+  const headers = {}
+  const auth = request.headers.get('authorization')
+  if (auth) headers['Authorization'] = auth
+  const depth = request.headers.get('depth')
+  if (depth !== null) headers['Depth'] = depth
+  const dest = request.headers.get('destination')
+  if (dest) headers['Destination'] = dest
+  const ct = request.headers.get('content-type')
+  if (ct) headers['Content-Type'] = ct
 
-    let body = undefined
-    if (!['GET', 'HEAD', 'DELETE'].includes(method)) {
-      body = await request.arrayBuffer()
-      if (body.byteLength === 0) body = undefined
-    }
+  let body = undefined
+  if (!['GET', 'HEAD', 'DELETE'].includes(method)) {
+    body = await request.arrayBuffer()
+    if (body.byteLength === 0) body = undefined
+  }
 
-    return proxyFetch(fullUrl, method, headers, body, 0)
-  },
+  return proxyFetch(fullUrl, method, headers, body, 0)
 }
 
 async function proxyFetch(requestUrl, method, headers, body, redirects) {
