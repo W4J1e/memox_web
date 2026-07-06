@@ -98,6 +98,61 @@ export const useSettingsStore = defineStore('settings', () => {
     return collected
   }
 
+  async function uploadAttachments(client, notes) {
+    const neededFileNames = new Set()
+    for (const note of notes) {
+      const names = getAllImageFileNames(note)
+      for (const n of names) neededFileNames.add(n)
+    }
+
+    if (neededFileNames.size === 0) return 0
+
+    let uploaded = 0
+    const allRemoteFiles = []
+    const searchDirs = ['memoX/attachments/', 'memoX/attachments/files/', 'memoX/attachments/images/', 'memoX/attachments/audios/']
+    for (const dir of searchDirs) {
+      try {
+        await listAllFiles(client, dir, allRemoteFiles)
+      } catch {}
+    }
+
+    const existingRemoteNames = new Set(allRemoteFiles.map(f => f.name))
+
+    for (const fn of Array.from(neededFileNames)) {
+      if (existingRemoteNames.has(fn)) continue
+      try {
+        const blob = await getAttachment(fn)
+        if (!blob || blob.size === 0) continue
+        const targetDir = getAttachmentDir(fn)
+        const ok = await client.upload(`${targetDir}${fn}`, blob)
+        if (ok) {
+          uploaded++
+          console.log('[memoX] Uploaded attachment:', fn, blob.size, 'bytes')
+        }
+      } catch (e) {
+        console.warn('[memoX] Failed to upload', fn, e.message)
+      }
+    }
+
+    console.log('[memoX] uploadAttachments done:', uploaded, 'files')
+    return uploaded
+  }
+
+  function getAttachmentDir(fileName) {
+    const lower = fileName.toLowerCase()
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp')) {
+      return 'memoX/attachments/images/'
+    }
+    if (lower.endsWith('.mp3') || lower.endsWith('.m4a') || lower.endsWith('.wav') || lower.endsWith('.ogg')) {
+      return 'memoX/attachments/audios/'
+    }
+    // Android app names images as "timestamp_image_xxx" without extension
+    if (fileName.includes('_image_') || /^\d+_image/.test(fileName)) {
+      return 'memoX/attachments/images/'
+    }
+    return 'memoX/attachments/files/'
+  }
+
   async function syncAttachments(client, notes) {
     const neededFileNames = new Set()
     for (const note of notes) {
@@ -324,6 +379,7 @@ export const useSettingsStore = defineStore('settings', () => {
       await putSetting('tombstones', mergedTombstones)
       await putSetting('lastSyncTime', lastSyncTime.value)
 
+      await uploadAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'))
       await syncAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'))
 
       syncStatus.value = 'success'
@@ -396,10 +452,12 @@ export const useSettingsStore = defineStore('settings', () => {
       const labelsJson = JSON.stringify({ labels: notesStore.allLabels, hiddenLabels: hiddenLabels.value }, null, 2)
       await client.upload('memoX/labels.json', new TextEncoder().encode(labelsJson).buffer)
 
+      const attachUploaded = await uploadAttachments(client, localNotes)
+
       lastSyncTime.value = Date.now()
       await putSetting('lastSyncTime', lastSyncTime.value)
       syncStatus.value = 'success'
-      syncMessage.value = `上传完成：${uploaded} 条笔记`
+      syncMessage.value = `上传完成：${uploaded} 条笔记${attachUploaded > 0 ? '，' + attachUploaded + ' 个附件' : ''}`
     } catch (e) {
       syncStatus.value = 'error'
       syncMessage.value = `上传失败：${e.message}`

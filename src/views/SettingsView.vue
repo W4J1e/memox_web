@@ -162,7 +162,7 @@
                 <button
                   v-for="m in proxyModes"
                   :key="m.value"
-                  @click="webdavForm.proxyMode = m.value"
+                  @click="selectProxyMode(m.value)"
                   class="px-3 py-1.5 text-xs rounded-lg border-2 transition-all"
                   :class="webdavForm.proxyMode === m.value ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
                 >
@@ -178,10 +178,10 @@
               <input
                 v-model="webdavForm.proxyUrl"
                 type="url"
-                placeholder="http://localhost:3001/__dav__/"
+                placeholder="https://memox.w4j1e.workers.dev/"
                 class="input-field"
               />
-              <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">部署代理服务器后填写此地址，开发环境留空则自动使用内置代理</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">使用 Cloudflare Worker 代理绕过 CORS，也可填写自建代理地址</p>
             </div>
 
             <div class="flex gap-2 pt-2">
@@ -212,8 +212,8 @@
 
           <!-- CORS / Proxy info -->
           <div class="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs">
-            <p class="font-medium mb-1">💡 关于跨域问题</p>
-            <p>浏览器直连 WebDAV 受 CORS 限制。选择「自动」模式可通过内置代理绕过 CORS。若 WebDAV 服务器支持 CORS，可选择「直连」模式。</p>
+            <p class="font-medium mb-1">关于跨域问题</p>
+            <p>浏览器直连 WebDAV 受 CORS 限制。选择「代理模式」可通过 Cloudflare Worker 代理绕过 CORS，开箱即用。若 WebDAV 服务器支持 CORS，可选择「直连」模式。</p>
           </div>
         </section>
 
@@ -373,11 +373,20 @@ const connResult = ref(null)
 const proxyModeHint = computed(() => {
   switch (webdavForm.value.proxyMode) {
     case 'auto': return '自动通过代理绕过CORS'
-    case 'proxy': return '通过指定代理服务器访问WebDAV（推荐部署时使用）'
+    case 'proxy': return '通过 Cloudflare Worker 代理访问WebDAV（推荐部署时使用）'
     case 'direct': return '直接连接WebDAV服务器（需要服务器支持CORS）'
     default: return ''
   }
 })
+
+const DEFAULT_WORKER_URL = 'https://memox.w4j1e.workers.dev/'
+
+function selectProxyMode(mode) {
+  webdavForm.value.proxyMode = mode
+  if (mode === 'proxy' && !webdavForm.value.proxyUrl) {
+    webdavForm.value.proxyUrl = DEFAULT_WORKER_URL
+  }
+}
 
 onMounted(() => {
   webdavForm.value = {
