@@ -40,14 +40,13 @@ npm run build
 
 ## 部署
 
-### Vercel（推荐）
+### Vercel
 
 1. Fork 或导入此仓库到 GitHub
 2. 在 [Vercel](https://vercel.com) 中导入该项目
 3. 无需额外配置，直接部署
-4. 部署完成后访问 Vercel 分配的域名即可使用
-
-项目内置了 Vercel Serverless Function 作为 WebDAV 代理，`vercel.json` 已配置路由重写，`/__dav__/*` 请求会自动转发到 `api/__dav__/[...path].js`，由它代理 WebDAV 请求并添加 CORS 头。
+4. 由于目前我无力解决反代问题，所以部署完成后需手动选择“代理模式”
+4. 填入 cloudflare worker 部署的反代服务后即可正常使用（仅供测试：https://memox.w4j1e.workers.dev/）。
 
 > **注意**：Vercel Hobby 计划函数超时 10s、请求体限制 4.5MB，Pro 计划为 60s / 50MB。
 
