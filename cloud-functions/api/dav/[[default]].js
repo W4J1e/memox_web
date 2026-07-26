@@ -32,14 +32,26 @@ import express from 'express'
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH',
-  'Access-Control-Allow-Headers': 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override',
+  'Access-Control-Allow-Headers': 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override, X-DAV-Method',
   'Access-Control-Max-Age': '86400',
 }
 
+// Headers that must NOT be forwarded back to the browser as-is.
+//   - transfer-encoding / content-encoding / content-length / content-range:
+//     undici's fetch() auto-decompresses gzip/br responses, so `upstream.arrayBuffer()`
+//     already returns the DECODED bytes. Forwarding the original Content-Encoding
+//     header would make the browser try to gunzip plaintext -> ERR_CONTENT_DECODING_FAILED.
+//     Stripping these lets Express recompute the correct length and the browser treats
+//     the body as raw (transparent proxy, same as the local vite dev middleware).
 const SKIP_HEADERS = new Set([
   'strict-transport-security',
   'content-security-policy',
   'transfer-encoding',
+  'content-encoding',
+  'content-length',
+  'content-range',
+  'connection',
+  'keep-alive',
 ])
 
 const MAX_REDIRECTS = 5
@@ -59,7 +71,10 @@ app.use(async (req, res) => {
     const targetUrl = req.get('x-webdav-url')
     if (!targetUrl) return res.status(400).send('Missing X-WebDAV-Url header')
 
-    const method = req.get('x-method-override') || req.method
+    // Restore the real WebDAV method. We accept our custom X-DAV-Method header
+    // (EdgeOne's CDN/WAF strips the well-known X-Method-Override for security),
+    // and fall back to X-Method-Override for backward compatibility.
+    const method = req.get('x-dav-method') || req.get('x-method-override') || req.method
 
     // Reconstruct the upstream WebDAV URL from the original request URL,
     // stripping the /api/dav/ proxy prefix. req.originalUrl always holds the

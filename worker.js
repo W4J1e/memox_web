@@ -20,7 +20,7 @@
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH',
-  'Access-Control-Allow-Headers': 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override',
+  'Access-Control-Allow-Headers': 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override, X-DAV-Method',
   'Access-Control-Max-Age': '86400',
 }
 
@@ -37,7 +37,7 @@ export default {
       return new Response('Missing X-WebDAV-Url header', { status: 400, headers: CORS })
     }
 
-    const method = request.headers.get('x-method-override') || request.method
+    const method = request.headers.get('x-dav-method') || request.headers.get('x-method-override') || request.method
     const url = new URL(request.url)
     // Worker 部署在自己的域名下，请求路径就是 /memoX/... 这种形式
     const pathAfter = url.pathname.replace(/^\/+/, '')

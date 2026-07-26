@@ -62,7 +62,10 @@ export class WebDavClient {
     const STANDARD_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
     let actualMethod = method
     if (this._shouldUseProxy() && !STANDARD_METHODS.includes(method)) {
-      headers['X-Method-Override'] = method
+      // Use a non-standard override header name: EdgeOne's CDN/WAF strips the
+      // well-known X-Method-Override for security, which broke MKCOL/PROPFIND
+      // tunneling (the function received a bare POST and the upstream rejected it).
+      headers['X-DAV-Method'] = method
       actualMethod = 'POST'
     }
     const opts = { method: actualMethod, headers }

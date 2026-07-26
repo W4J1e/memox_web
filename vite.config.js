@@ -80,7 +80,7 @@ async function webdavProxyMiddleware(req, res, next) {
 
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH')
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override')
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override, X-DAV-Method')
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
@@ -95,7 +95,7 @@ async function webdavProxyMiddleware(req, res, next) {
     return
   }
 
-  const actualMethod = req.headers['x-method-override'] || req.method
+  const actualMethod = req.headers['x-dav-method'] || req.headers['x-method-override'] || req.method
 
   const targetBase = String(targetUrl).replace(/\/+$/, '')
   const pathSuffix = req.url.replace(/^\/api\/dav\//, '')
@@ -116,7 +116,7 @@ async function webdavProxyMiddleware(req, res, next) {
     const respHeaders = { ...proxyRes.headers }
     respHeaders['Access-Control-Allow-Origin'] = '*'
     respHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH'
-    respHeaders['Access-Control-Allow-Headers'] = 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override'
+    respHeaders['Access-Control-Allow-Headers'] = 'Authorization, Depth, Destination, Content-Type, X-WebDAV-Url, X-Method-Override, X-DAV-Method'
     delete respHeaders['strict-transport-security']
     delete respHeaders['content-security-policy']
     res.writeHead(proxyRes.statusCode || 500, respHeaders)
