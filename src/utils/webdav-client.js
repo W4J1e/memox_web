@@ -1,4 +1,4 @@
-const PROXY_PATH = '/api/__dav__/'
+const PROXY_PATH = '/api/dav/'
 
 function normalizeWebdavPath(path) {
   if (!path) return ''

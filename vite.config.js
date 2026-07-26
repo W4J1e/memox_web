@@ -76,7 +76,7 @@ function makeRequest(requestUrl, options, bodyBuffer, redirectCount = 0) {
 }
 
 async function webdavProxyMiddleware(req, res, next) {
-  if (!req.url.startsWith('/api/__dav__/')) return next()
+  if (!req.url.startsWith('/api/dav/')) return next()
 
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS, HEAD, PATCH')
@@ -98,7 +98,7 @@ async function webdavProxyMiddleware(req, res, next) {
   const actualMethod = req.headers['x-method-override'] || req.method
 
   const targetBase = String(targetUrl).replace(/\/+$/, '')
-  const pathSuffix = req.url.replace(/^\/api\/__dav__\//, '')
+  const pathSuffix = req.url.replace(/^\/api\/dav\//, '')
   const fullUrl = `${targetBase}/${pathSuffix}`
 
   const headers = {}
