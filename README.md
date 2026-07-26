@@ -46,7 +46,7 @@ npm run build
 2. 在 [Vercel](https://vercel.com) 中导入该项目
 3. 无需额外配置，直接部署
 4. 由于目前我无力解决反代问题，所以部署完成后需手动选择“代理模式”
-4. 填入 cloudflare worker 部署的反代服务后即可正常使用（仅供测试：https://memox.w4j1e.workers.dev/）。
+5. 填入 cloudflare worker 部署的反代服务后即可正常使用（仅供测试：[https://memox.w4j1e.workers.dev/ ](https://memox.w4j1e.workers.dev/）。) ）
 
 > **注意**：Vercel Hobby 计划函数超时 10s、请求体限制 4.5MB，Pro 计划为 60s / 50MB。
 
