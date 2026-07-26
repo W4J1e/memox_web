@@ -28,6 +28,7 @@
 //   - Cloudflare:  worker.js                                  (kept for reference)
 
 import express from 'express'
+import { Readable } from 'node:stream'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -36,20 +37,22 @@ const CORS = {
   'Access-Control-Max-Age': '86400',
 }
 
-// Headers that must NOT be forwarded back to the browser as-is.
-//   - transfer-encoding / content-encoding / content-length / content-range:
-//     undici's fetch() auto-decompresses gzip/br responses, so `upstream.arrayBuffer()`
-//     already returns the DECODED bytes. Forwarding the original Content-Encoding
-//     header would make the browser try to gunzip plaintext -> ERR_CONTENT_DECODING_FAILED.
-//     Stripping these lets Express recompute the correct length and the browser treats
-//     the body as raw (transparent proxy, same as the local vite dev middleware).
+// Headers that must NEVER be forwarded back to the browser as-is.
+//   - content-encoding: undici's fetch() auto-decompresses gzip/br responses,
+//     so the bytes we stream back are already DECODED. Forwarding the original
+//     Content-Encoding header would make the browser try to gunzip plaintext
+//     -> ERR_CONTENT_DECODING_FAILED. We strip it and stream raw bytes
+//     (transparent proxy, same behaviour as the local vite dev middleware).
+//   - transfer-encoding / connection / keep-alive: hop-by-hop, managed by Express.
+//   - content-length / content-range / accept-ranges: we STREAM the body, so we
+//     drop these for full (200/207) responses and let Express use chunked
+//     transfer. For 206 Partial Content we KEEP Content-Range so the client can
+//     assemble range downloads, but still drop Content-Length (Express chunks).
 const SKIP_HEADERS = new Set([
   'strict-transport-security',
   'content-security-policy',
   'transfer-encoding',
   'content-encoding',
-  'content-length',
-  'content-range',
   'connection',
   'keep-alive',
 ])
@@ -89,7 +92,7 @@ app.use(async (req, res) => {
       ? `${targetBase}/${webdavPath}${queryStr}`
       : `${targetBase}${queryStr}`
 
-    // Forward relevant WebDAV headers
+    // Forward relevant WebDAV headers (incl. Range for resumable downloads)
     const headers = {}
     const auth = req.get('authorization')
     if (auth) headers['Authorization'] = auth
@@ -99,6 +102,8 @@ app.use(async (req, res) => {
     if (dest) headers['Destination'] = dest
     const ct = req.get('content-type')
     if (ct) headers['Content-Type'] = ct
+    const range = req.get('range')
+    if (range) headers['Range'] = range
 
     // Buffer the raw request body (binary attachments — must NOT be parsed).
     // No body-parser middleware is registered, so req is the raw stream.
@@ -116,12 +121,38 @@ app.use(async (req, res) => {
 
     const upstream = await proxyFetch(fullUrl, method, headers, body, 0)
 
+    // Decide which hop-by-hop / decode-related headers to drop.
+    const skip = new Set(SKIP_HEADERS)
+    skip.add('content-length')
+    if (upstream.status !== 206) {
+      skip.add('content-range')
+      skip.add('accept-ranges')
+    }
+    // For HEAD we still want Content-Length so the client can learn file size.
+    if (method === 'HEAD') skip.delete('content-length')
     upstream.headers.forEach((v, k) => {
-      if (!SKIP_HEADERS.has(k.toLowerCase())) res.setHeader(k, v)
+      if (!skip.has(k.toLowerCase())) res.setHeader(k, v)
     })
 
-    const buf = Buffer.from(await upstream.arrayBuffer())
-    res.status(upstream.status).send(buf)
+    // Immutable attachments (images/audios/files) are content-addressed by UUID
+    // and never change, so cache them at the edge to avoid re-proxying on every
+    // sync/view. This dramatically cuts Cloud Function invocations and latency,
+    // and means a second view of the same image never hits the 504 risk again.
+    if (method === 'GET' && /\/attachments\//.test(webdavPath)) {
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable')
+      res.setHeader('Accept-Ranges', 'bytes')
+    }
+
+    res.status(upstream.status)
+
+    // Stream the (already-decompressed) upstream body back to the browser.
+    // Streaming keeps the connection alive and avoids buffering huge binaries
+    // in memory (a 70 MB image previously blew the function's memory and hit
+    // the gateway idle timeout -> 504). Range/partial responses stream the same way.
+    if (!upstream.body) { res.end(); return }
+    const nodeStream = Readable.fromWeb(upstream.body)
+    nodeStream.on('error', () => { try { res.destroy() } catch {} })
+    nodeStream.pipe(res)
   } catch (err) {
     res.status(502).send('Proxy error: ' + err.message)
   }

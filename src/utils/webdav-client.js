@@ -175,7 +175,40 @@ export class WebDavClient {
     return resp.arrayBuffer()
   }
 
-  async downloadBlob(path) {
+  // Download a binary attachment. For large files we fetch in byte ranges so a
+  // single request never exceeds the EdgeOne gateway timeout (which caused 504s
+  // on big images proxied through the Cloud Function). Small files use one GET.
+  async downloadBlob(path, { chunkSize = 2 * 1024 * 1024 } = {}) {
+    try {
+      const head = await this.request('HEAD', path)
+      const total = head.ok ? parseInt(head.headers.get('content-length') || '0', 10) : 0
+      if (total > chunkSize) {
+        const parts = []
+        for (let start = 0; start < total; start += chunkSize) {
+          const end = Math.min(start + chunkSize - 1, total - 1)
+          const resp = await this.request('GET', path, null, { 'Range': `bytes=${start}-${end}` })
+          if (resp.status === 200) {
+            // Upstream ignored Range -> this response is the whole file.
+            const buf = await resp.arrayBuffer()
+            return new Blob([new Uint8Array(buf)])
+          }
+          if (resp.status !== 206) {
+            return this._fullBlob(path)
+          }
+          const buf = await resp.arrayBuffer()
+          if (!buf.byteLength) break
+          parts.push(new Uint8Array(buf))
+        }
+        if (parts.length === 0) return this._fullBlob(path)
+        return new Blob(parts)
+      }
+    } catch {
+      // Fall through to a single full GET below.
+    }
+    return this._fullBlob(path)
+  }
+
+  async _fullBlob(path) {
     const resp = await this.request('GET', path)
     if (!resp.ok) return null
     return resp.blob()
