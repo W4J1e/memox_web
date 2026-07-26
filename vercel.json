@@ -1,5 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/__dav__/:path*", "destination": "/api/dav/:path*" }
-  ]
-}

@@ -1,8 +1,27 @@
-export const config = {
-  runtime: 'edge',
-}
-
-export const maxDuration = 10
+// memoX WebDAV reverse proxy — EdgeOne Makers Cloud Function
+//
+// Deployed at /__dav__/* via the file cloud-functions/__dav__/[[default]].js.
+// The browser only ever talks to the SAME-ORIGIN path /__dav__/memoX/...
+// (EdgeOne Makers runs on Tencent infrastructure, China-accessible), and this
+// function forwards the request to the user's WebDAV server server-side.
+// Because the WebDAV call happens on the server — not in the browser — there is
+// NO CORS issue, and no external proxy (e.g. a Cloudflare Worker) is required.
+//
+// Why Cloud Functions (not Edge Functions)?
+//   Edge Functions cap request body at 1 MB and CPU at 200 ms. WebDAV uploads
+//   image/audio attachments that routinely exceed 1 MB, so Edge Functions would
+//   silently break attachment sync. Cloud Functions allow a 6 MB body and up to
+//   120 s duration — enough for photo attachments — while still being
+//   same-origin (no CORS) and China-accessible.
+//
+// This path is the EdgeOne Makers equivalent of:
+//   - dev:         vite.config.js middleware
+//   - Vercel:      vercel.json rewrite + api/dav/[...path].js   (removed)
+//   - Cloudflare:  worker.js                                      (kept for reference)
+//
+// The web client (src/utils/webdav-client.js) always sends WebDAV-specific methods
+// (PROPFIND/MKCOL/...) as POST with an X-Method-Override header when in proxy mode,
+// so a single onRequest() handles every call.
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -13,11 +32,15 @@ const CORS = {
 
 const MAX_REDIRECTS = 5
 
-export default async function handler(request) {
+export async function onRequest(context) {
+  const request = context.request
+
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS })
   }
 
+  // The target WebDAV server is passed by the client so a single function works
+  // for every user regardless of their provider.
   const targetUrl = request.headers.get('x-webdav-url')
   if (!targetUrl) {
     return new Response('Missing X-WebDAV-Url header', { status: 400, headers: CORS })
@@ -25,7 +48,7 @@ export default async function handler(request) {
 
   const method = request.headers.get('x-method-override') || request.method
   const url = new URL(request.url)
-  const pathAfter = url.pathname.replace(/^\/api\/dav\//, '')
+  const pathAfter = url.pathname.replace(/^\/__dav__\//, '')
   const targetBase = targetUrl.replace(/\/+$/, '')
   const fullUrl = pathAfter ? `${targetBase}/${pathAfter}${url.search}` : `${targetBase}${url.search}`
 
@@ -41,8 +64,8 @@ export default async function handler(request) {
 
   let body = undefined
   if (!['GET', 'HEAD', 'DELETE'].includes(method)) {
-    body = await request.arrayBuffer()
-    if (body.byteLength === 0) body = undefined
+    const buf = await request.arrayBuffer()
+    if (buf && buf.byteLength > 0) body = buf
   }
 
   return proxyFetch(fullUrl, method, headers, body, 0)

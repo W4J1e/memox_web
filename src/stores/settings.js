@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getSetting, putSetting, getAttachment, putAttachment } from '../utils/storage'
 import { WebDavClient } from '../utils/webdav-client'
-import { noteToJson, jsonToNote, extractNoteId, noteFileName, getImageFileName, getAllImageFileNames } from '../utils/note-parser'
+import { noteToJson, jsonToNote, extractNoteId, noteFileName, getImageFileName, getAllImageFileNames, getAllAttachmentFileNames } from '../utils/note-parser'
 import { useNotesStore } from './notes'
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -19,6 +19,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const tombstones = ref([])
   const hiddenLabels = ref([])
   const lockOnStartup = ref(true)
+  // Attachment file names scheduled for deletion from the remote store. A note's
+  // attachments are enqueued here when the note is permanently deleted (from the
+  // recycle bin); cleanupAttachments() removes them from the remote once the note
+  // file itself has been purged, mirroring Android's deleteRemoteNote behavior.
+  const pendingAttachmentCleanup = ref([])
 
   async function loadSettings() {
     webdavUrl.value = await getSetting('webdav_url', '')
@@ -31,6 +36,7 @@ export const useSettingsStore = defineStore('settings', () => {
     lastSyncTime.value = await getSetting('lastSyncTime', 0)
     tombstones.value = await getSetting('tombstones', [])
     hiddenLabels.value = await getSetting('hiddenLabels', [])
+    pendingAttachmentCleanup.value = await getSetting('pendingAttachmentCleanup', [])
     lockOnStartup.value = await getSetting('lockOnStartup', true)
     applyTheme()
   }
@@ -268,7 +274,7 @@ export const useSettingsStore = defineStore('settings', () => {
         }
       }
 
-      const localNotes = notesStore.notes.filter(n => n.folder !== 'DELETED')
+      const localNotes = notesStore.notes
       const localNoteMap = new Map(localNotes.map(n => [n.id, n]))
 
       const toUpload = []
@@ -276,7 +282,7 @@ export const useSettingsStore = defineStore('settings', () => {
       const toConflictResolve = []
 
       for (const note of localNotes) {
-        if (!remoteNoteIdToFileNames.has(note.id)) {
+        if (!mergedTombstones.includes(note.id) && !remoteNoteIdToFileNames.has(note.id)) {
           toUpload.push(note)
         }
       }
@@ -297,7 +303,7 @@ export const useSettingsStore = defineStore('settings', () => {
             const localNote = localNoteMap.get(id)
             if (remoteNote.modifiedTimestamp > localNote.modifiedTimestamp) {
               await notesStore.saveNote(remoteNote)
-            } else if (remoteNote.modifiedTimestamp < localNote.modifiedTimestamp) {
+            } else {
               toUpload.push(localNote)
             }
           } catch {}
@@ -338,13 +344,14 @@ export const useSettingsStore = defineStore('settings', () => {
         }
       }
 
-      const currentNotes = notesStore.notes.filter(n => n.folder !== 'DELETED')
-      const syncedNoteIds = currentNotes.map(n => n.id).sort()
+      await cleanupAttachments(client)
+
+      const allNoteIds = notesStore.notes.map(n => n.id).sort()
       const syncMeta = {
         lastSyncTime: Date.now(),
-        noteCount: currentNotes.length,
+        noteCount: notesStore.notes.length,
         appVersion: '1.0.0-web',
-        syncedNoteIds,
+        syncedNoteIds: allNoteIds,
         deletedNoteIds: mergedTombstones,
       }
       await client.upload('memoX/sync_meta.json', new TextEncoder().encode(JSON.stringify(syncMeta, null, 2)).buffer)
@@ -373,7 +380,7 @@ export const useSettingsStore = defineStore('settings', () => {
       await putSetting('tombstones', mergedTombstones)
       await putSetting('lastSyncTime', lastSyncTime.value)
 
-      await uploadAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'))
+      await uploadAttachments(client, notesStore.notes)
       await syncAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'))
 
       syncStatus.value = 'success'
@@ -395,7 +402,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
     try {
       await client.ensureDirectories()
-      const localNotes = notesStore.notes.filter(n => n.folder !== 'DELETED')
+      const localNotes = notesStore.notes
 
       const remoteFiles = await client.listFiles('memoX/notes')
       const remoteNoteIdToFileNames = new Map()
@@ -411,6 +418,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
       let uploaded = 0
       for (const note of localNotes) {
+        if (tombstones.value.includes(note.id)) continue
         const json = noteToJson(note)
         const fileName = noteFileName(note)
         const ok = await client.upload(`memoX/notes/${fileName}`, new TextEncoder().encode(json).buffer)
@@ -425,7 +433,7 @@ export const useSettingsStore = defineStore('settings', () => {
         }
       }
 
-      const localIds = new Set(localNotes.map(n => n.id))
+      const localIds = new Set(localNotes.filter(n => !tombstones.value.includes(n.id)).map(n => n.id))
       for (const [id, fileNames] of remoteNoteIdToFileNames) {
         if (!localIds.has(id)) {
           for (const name of fileNames) {
@@ -434,11 +442,14 @@ export const useSettingsStore = defineStore('settings', () => {
         }
       }
 
+      await cleanupAttachments(client)
+
+      const activeNoteIds = localNotes.filter(n => !tombstones.value.includes(n.id)).map(n => n.id).sort()
       const syncMeta = {
         lastSyncTime: Date.now(),
-        noteCount: localNotes.length,
+        noteCount: activeNoteIds.length,
         appVersion: '1.0.0-web',
-        syncedNoteIds: localNotes.map(n => n.id).sort(),
+        syncedNoteIds: activeNoteIds,
         deletedNoteIds: tombstones.value,
       }
       await client.upload('memoX/sync_meta.json', new TextEncoder().encode(JSON.stringify(syncMeta, null, 2)).buffer)
@@ -484,7 +495,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
       await notesStore.replaceAllNotes(newNotes)
 
-      const imgCount = await syncAttachments(client, newNotes)
+      const imgCount = await syncAttachments(client, newNotes.filter(n => n.folder !== 'DELETED'))
 
       lastSyncTime.value = Date.now()
       await putSetting('lastSyncTime', lastSyncTime.value)
@@ -502,6 +513,41 @@ export const useSettingsStore = defineStore('settings', () => {
       tombstones.value.push(id)
       await putSetting('tombstones', tombstones.value)
     }
+  }
+
+  async function addPendingAttachmentCleanup(names) {
+    if (!names || !names.length) return
+    const merged = Array.from(new Set([...pendingAttachmentCleanup.value, ...names]))
+    pendingAttachmentCleanup.value = merged
+    await putSetting('pendingAttachmentCleanup', merged)
+  }
+
+  // Remove attachment files from the remote store that are no longer referenced by
+  // any active (non-deleted) local note. Skips files still used by other notes so a
+  // shared attachment is never deleted prematurely. Retries on the next sync if the
+  // remote delete fails (the pending list is only cleared after a successful attempt).
+  async function cleanupAttachments(client) {
+    if (!pendingAttachmentCleanup.value.length) return
+    const pending = [...pendingAttachmentCleanup.value]
+
+    const notesStore = useNotesStore()
+    const referenced = new Set()
+    for (const n of notesStore.notes) {
+      for (const fn of getAllAttachmentFileNames(n)) referenced.add(fn)
+    }
+
+    const dirs = ['memoX/attachments/images/', 'memoX/attachments/audios/', 'memoX/attachments/files/']
+    for (const name of pending) {
+      if (referenced.has(name)) continue
+      for (const dir of dirs) {
+        try {
+          await client.delete(`${dir}${name}`)
+        } catch {}
+      }
+    }
+
+    pendingAttachmentCleanup.value = []
+    await putSetting('pendingAttachmentCleanup', [])
   }
 
   let autoSyncTimer = null
@@ -570,6 +616,7 @@ export const useSettingsStore = defineStore('settings', () => {
     upload,
     download,
     addTombstone,
+    addPendingAttachmentCleanup,
     getImageUrl,
     syncAttachments,
     autoSync,

@@ -16,6 +16,40 @@ function parseJsonField(val) {
   return []
 }
 
+// Guess a MIME type from a file name / extension.
+// Android's Converters.jsonToFiles reads mimeType via getString() (non-optional),
+// so every image/file attachment MUST carry a mimeType or the note is dropped on sync.
+export function guessMimeType(fileName) {
+  const lower = (fileName || '').toLowerCase()
+  const ext = lower.includes('.') ? lower.split('.').pop() : ''
+  const map = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+    webp: 'image/webp', bmp: 'image/bmp', heic: 'image/heic', heif: 'image/heif',
+    svg: 'image/svg+xml',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', ogg: 'audio/ogg', aac: 'audio/aac',
+    pdf: 'application/pdf', txt: 'text/plain', json: 'application/json',
+    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    zip: 'application/zip',
+  }
+  return map[ext] || 'application/octet-stream'
+}
+
+// Ensure an attachment object matches the Android FileAttachment shape:
+// { localName, originalName, mimeType }. Fills missing fields defensively so that
+// both newly created and legacy web notes remain parseable by the Android app.
+function normalizeAttachment(att) {
+  if (!att || typeof att !== 'object') return att
+  const localName = att.localName || att.name || att.fileName || ''
+  const originalName = att.originalName || (localName ? String(localName).split('/').pop() : '')
+  const mimeType = att.mimeType || guessMimeType(localName || originalName)
+  return { localName, originalName, mimeType }
+}
+
+function normalizeAttachments(list) {
+  if (!Array.isArray(list)) return []
+  return list.map(normalizeAttachment)
+}
+
 export function noteToJson(note) {
   // Match Android's double-serialized format for compatibility
   return JSON.stringify({
@@ -31,8 +65,8 @@ export function noteToJson(note) {
     body: note.body || '',
     spans: JSON.stringify(note.spans || []),
     items: JSON.stringify(note.items || []),
-    images: JSON.stringify(note.images || []),
-    files: JSON.stringify(note.files || []),
+    images: JSON.stringify(normalizeAttachments(note.images)),
+    files: JSON.stringify(normalizeAttachments(note.files)),
     audios: JSON.stringify(note.audios || []),
     reminders: JSON.stringify(note.reminders || []),
     viewMode: note.viewMode || 'EDIT',
@@ -227,6 +261,23 @@ export function getAllImageFileNames(note) {
         if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.gif') || lower.endsWith('.webp') || lower.endsWith('.bmp')) {
           names.add(fn)
         }
+      }
+    }
+  }
+  return Array.from(names)
+}
+
+// All attachment file names referenced by a note (images + files + audios),
+// used for garbage-collecting orphaned files on the remote store when a note
+// is permanently deleted.
+export function getAllAttachmentFileNames(note) {
+  const names = new Set()
+  for (const key of ['images', 'files', 'audios']) {
+    const list = note[key]
+    if (Array.isArray(list)) {
+      for (const a of list) {
+        const fn = getImageFileName(a)
+        if (fn) names.add(fn)
       }
     }
   }
