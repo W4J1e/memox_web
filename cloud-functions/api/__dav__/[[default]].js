@@ -1,7 +1,17 @@
 // memoX WebDAV reverse proxy — EdgeOne Makers Cloud Function
 //
-// Deployed at /__dav__/* via the file cloud-functions/__dav__/[[default]].js.
-// The browser only ever talks to the SAME-ORIGIN path /__dav__/memoX/...
+// Deployed at /api/__dav__/* via cloud-functions/api/__dav__/[[default]].js.
+//
+// WHY under /api/ ?
+//   EdgeOne Makers' docs only ever demonstrate dynamic ([id]) and catch-all
+//   ([[default]]) routes beneath the `api/` directory (e.g.
+//   cloud-functions/api/[[default]].js -> /api/*). A top-level catch-all like
+//   cloud-functions/__dav__/[[default]].js is NOT shown in any example and was
+//   not being recognized by the platform (requests returned 404 with no
+//   function logs). Placing it under /api/ follows the documented, reliably
+//   recognized routing pattern.
+//
+// The browser only ever talks to the SAME-ORIGIN path /api/__dav__/memoX/...
 // (EdgeOne Makers runs on Tencent infrastructure, China-accessible), and this
 // function forwards the request to the user's WebDAV server server-side.
 // Because the WebDAV call happens on the server — not in the browser — there is
@@ -48,7 +58,7 @@ export async function onRequest(context) {
 
   const method = request.headers.get('x-method-override') || request.method
   const url = new URL(request.url)
-  const pathAfter = url.pathname.replace(/^\/__dav__\//, '')
+  const pathAfter = url.pathname.replace(/^\/api\/__dav__\//, '')
   const targetBase = targetUrl.replace(/\/+$/, '')
   const fullUrl = pathAfter ? `${targetBase}/${pathAfter}${url.search}` : `${targetBase}${url.search}`
 
