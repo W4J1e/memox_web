@@ -172,43 +172,45 @@ export const useSettingsStore = defineStore('settings', () => {
       const names = getAllImageFileNames(note)
       for (const n of names) neededFileNames.add(n)
     }
-    if (neededFileNames.size === 0) return 0
 
-    // Skip files already cached in IndexedDB (no re-download on every sync).
-    const toDownload = []
-    for (const fn of neededFileNames) {
+    let downloaded = 0
+    if (neededFileNames.size === 0) return downloaded
+
+    for (const fn of Array.from(neededFileNames)) {
       try {
         const existing = await getAttachment(fn)
-        if (!existing) toDownload.push(fn)
+        if (existing) { neededFileNames.delete(fn) }
       } catch {}
     }
-    if (toDownload.length === 0) return 0
+    if (neededFileNames.size === 0) return downloaded
 
-    // Download in parallel (capped) by deriving each attachment's path directly
-    // from its file name. This removes the previous 4-directory PROPFIND listing
-    // on every sync and the per-image HEAD + GET round trips: one GET per file,
-    // concurrent, so wall-clock time is the slowest single image, not the sum.
-    let downloaded = 0
-    let cursor = 0
-    const concurrency = 4
-    async function worker() {
-      while (cursor < toDownload.length) {
-        const fn = toDownload[cursor++]
-        const remotePath = getAttachmentDir(fn) + fn
-        try {
-          const blob = await client.downloadBlob(remotePath)
-          if (blob && blob.size > 0) {
-            await putAttachment(fn, blob)
-            downloaded++
-          }
-        } catch (e) {
-          console.warn('[memoX] Failed to download attachment', fn, e?.message)
-        }
+    const allRemoteFiles = []
+    const searchDirs = ['memoX/attachments/', 'memoX/attachments/files/', 'memoX/attachments/images/', 'memoX/attachments/audios/']
+    for (const dir of searchDirs) {
+      try {
+        await listAllFiles(client, dir, allRemoteFiles)
+      } catch {}
+    }
+
+    const remoteFileMap = new Map()
+    for (const f of allRemoteFiles) {
+      if (!remoteFileMap.has(f.name)) {
+        remoteFileMap.set(f.name, f.path)
       }
     }
-    const workers = []
-    for (let i = 0; i < Math.min(concurrency, toDownload.length); i++) workers.push(worker())
-    await Promise.all(workers)
+
+    for (const fn of Array.from(neededFileNames)) {
+      const remotePath = remoteFileMap.get(fn)
+      if (!remotePath) continue
+      try {
+        const blob = await client.downloadBlob(remotePath)
+        if (blob && blob.size > 0) {
+          await putAttachment(fn, blob)
+          downloaded++
+        }
+      } catch {}
+    }
+
     return downloaded
   }
 
