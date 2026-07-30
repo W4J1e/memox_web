@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getAllNotes, putNote, deleteNote as dbDeleteNote, putNotes, clearNotes } from '../utils/storage'
-import { createEmptyNote, createEmptyListItem, generateId, getAllAttachmentFileNames } from '../utils/note-parser'
+import { createEmptyNote, createEmptyListItem, generateId } from '../utils/note-parser'
 import { useSettingsStore } from './settings'
 
 export const useNotesStore = defineStore('notes', () => {
@@ -10,18 +10,6 @@ export const useNotesStore = defineStore('notes', () => {
   const searchQuery = ref('')
   const currentLabel = ref(null)
   const loading = ref(false)
-
-  // Fire a debounced background sync after any local mutation so that changes
-  // (create / edit / delete / pin / color / label / lock ...) reach the remote
-  // store without requiring the user to tap "sync". Mirrors the Android app,
-  // which calls SyncRouter.syncNow() after every operation.
-  function triggerAutoSync() {
-    try {
-      useSettingsStore().scheduleAutoSync()
-    } catch {
-      // settings store not ready yet — ignore
-    }
-  }
 
   const activeNotes = computed(() => {
     let filtered = notes.value.filter(n => n.folder === currentFolder.value)
@@ -99,7 +87,6 @@ export const useNotesStore = defineStore('notes', () => {
     } else {
       notes.value.push({ ...note })
     }
-    triggerAutoSync()
   }
 
   async function createNote(type = 'NOTE') {
@@ -110,7 +97,6 @@ export const useNotesStore = defineStore('notes', () => {
     }
     await putNote(note)
     notes.value.push({ ...note })
-    triggerAutoSync()
     return note
   }
 
@@ -126,7 +112,6 @@ export const useNotesStore = defineStore('notes', () => {
       note.modifiedTimestamp = Date.now()
       await putNote(note)
     }
-    triggerAutoSync()
   }
 
   async function restoreNote(id) {
@@ -135,35 +120,21 @@ export const useNotesStore = defineStore('notes', () => {
     note.folder = 'NOTES'
     note.modifiedTimestamp = Date.now()
     await putNote(note)
-    triggerAutoSync()
   }
 
   async function permanentDeleteNote(id) {
-    const note = notes.value.find(n => n.id === id)
-    if (note) {
-      const names = getAllAttachmentFileNames(note)
-      if (names.length) {
-        try { await useSettingsStore().addPendingAttachmentCleanup(names) } catch {}
-      }
-    }
     await dbDeleteNote(id)
     notes.value = notes.value.filter(n => n.id !== id)
     try { await useSettingsStore().addTombstone(id) } catch {}
-    triggerAutoSync()
   }
 
   async function emptyTrash() {
     const deleted = notes.value.filter(n => n.folder === 'DELETED')
     for (const note of deleted) {
-      const names = getAllAttachmentFileNames(note)
-      if (names.length) {
-        try { await useSettingsStore().addPendingAttachmentCleanup(names) } catch {}
-      }
       await dbDeleteNote(note.id)
       try { await useSettingsStore().addTombstone(note.id) } catch {}
     }
     notes.value = notes.value.filter(n => n.folder !== 'DELETED')
-    triggerAutoSync()
   }
 
   async function togglePin(id) {
@@ -172,7 +143,6 @@ export const useNotesStore = defineStore('notes', () => {
     note.pinned = !note.pinned
     note.modifiedTimestamp = Date.now()
     await putNote(note)
-    triggerAutoSync()
   }
 
   async function updateNoteColor(id, color) {
@@ -181,7 +151,6 @@ export const useNotesStore = defineStore('notes', () => {
     note.color = color
     note.modifiedTimestamp = Date.now()
     await putNote(note)
-    triggerAutoSync()
   }
 
   async function updateNoteLabels(id, labels) {
@@ -190,7 +159,6 @@ export const useNotesStore = defineStore('notes', () => {
     note.labels = labels
     note.modifiedTimestamp = Date.now()
     await putNote(note)
-    triggerAutoSync()
   }
 
   async function updateNoteLocked(id, locked) {
@@ -199,7 +167,6 @@ export const useNotesStore = defineStore('notes', () => {
     note.locked = locked
     note.modifiedTimestamp = Date.now()
     await putNote(note)
-    triggerAutoSync()
   }
 
   async function replaceAllNotes(newNotes) {

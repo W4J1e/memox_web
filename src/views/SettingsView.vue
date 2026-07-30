@@ -272,7 +272,7 @@
         <section class="card p-4">
           <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">关于</h2>
           <div class="space-y-1 text-sm text-gray-600 dark:text-gray-400">
-            <p>memoX Web v0.0.1</p>
+            <p>memoX Web v1.0.0</p>
             <p>与 memoX Android 应用数据兼容</p>
             <p class="pt-2">作者：<a href="https://hin.cool" target="_blank" rel="noopener" class="text-green-600 dark:text-green-400 hover:underline">W4J1e</a></p>
             <p>仓库：<a href="https://github.com/W4J1e/memox_web" target="_blank" rel="noopener" class="text-green-600 dark:text-green-400 hover:underline">github/memox_web</a></p>

@@ -177,6 +177,7 @@
             </svg>
           </button>
           <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">{{ currentViewTitle }}</h2>
+          <DynamicIsland />
           <div class="ml-auto flex items-center gap-1">
             <button
               @click="toggleSortOrder"
@@ -495,6 +496,7 @@ import { useLockStore } from '../stores/lock'
 import NoteCard from '../components/NoteCard.vue'
 import NavItem from '../components/NavItem.vue'
 import LabelItem from '../components/LabelItem.vue'
+import DynamicIsland from '../components/DynamicIsland.vue'
 import { formatDate, getNotePreview, sanitizeBody, getImageFileName, createEmptyListItem, guessMimeType } from '../utils/note-parser'
 import { getAttachment, putAttachment } from '../utils/storage'
 import { spansToHtml, htmlToSpans, getPlainTextFromHtml } from '../utils/rich-text'

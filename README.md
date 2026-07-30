@@ -2,7 +2,7 @@
 
 [memoX](https://github.com/W4J1e/memox) 的网页版本，与 Android 端数据完全兼容。
 
-![memoX_web](./public/memox_web.jpg)
+![memoX\_web](./public/memox_web.jpg)
 
 ## 功能特性
 
@@ -10,12 +10,10 @@
 - **图片插入** — 在笔记中插入图片
 - **标签分类** — 使用标签管理和筛选笔记，支持隐藏标签
 - **WebDAV 同步** — 通过 WebDAV 服务器双向同步笔记和附件
-  - 打开页面时自动拉取远端更新
-  - 编辑笔记后自动同步到远端
-  - 支持手动上传/下载
 - **深色模式** — 支持浅色、深色、跟随系统三种主题
 - **PIN 锁定** — 设置 PIN 码保护应用和加密笔记，可选启动时锁定
 - **数据导出** — 支持导出为 JSON 格式
+- **灵动岛** — 实时展示同步状态
 
 ## 技术栈
 
@@ -40,15 +38,13 @@ npm run build
 
 ## 部署
 
-### Vercel
+### EdgeOne Makers（推荐）
 
-1. Fork 或导入此仓库到 GitHub
-2. 在 [Vercel](https://vercel.com) 中导入该项目
-3. 无需额外配置，直接部署
-4. 由于目前我无力解决反代问题，所以部署完成后需手动选择“代理模式”
-5. 填入 cloudflare worker 部署的反代服务后即可正常使用（仅供测试：[https://memox.w4j1e.workers.dev/ ](https://memox.w4j1e.workers.dev/）。) ）
+1. Fork 或导入此仓库
+2. 在 EdgeOne Makers 中导入该项目（会自动识别为 Vite 项目）
+3. 无需额外配置，直接部署。WebDAV 跨域代理由 `cloud-functions/api/dav/` 下的 Cloud Function 自动提供，无需再部署 Cloudflare Worker 或手动配置代理
 
-> **注意**：Vercel Hobby 计划函数超时 10s、请求体限制 4.5MB，Pro 计划为 60s / 50MB。
+> **注意**：受 EdgeOne Cloud Function 的限制（请求体上限 6MB、单次执行 120s，且所有 WebDAV 请求均需经函数中转回源），附件（图片等）的同步速度不算很理想，大附件首次同步需要一定的等待时间；笔记本身体积很小，同步速度不受影响。
 
 ### 自托管服务器
 
