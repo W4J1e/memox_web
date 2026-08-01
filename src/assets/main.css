@@ -3,6 +3,54 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --c-canvas: 248 250 252;
+    --c-surface: 255 255 255;
+    --c-raised: 255 255 255;
+    --c-sunken: 241 245 249;
+    --c-line: 226 232 240;
+    --c-ink: 15 23 42;
+    --c-ink-muted: 71 85 105;
+    --c-ink-soft: 100 116 139;
+    --c-ink-faint: 148 163 184;
+    --c-accent: 99 102 241;
+    --c-accent-hover: 79 70 229;
+    --c-accent-ring: 99 102 241;
+    --c-on-accent: 255 255 255;
+    --c-danger: 239 68 68;
+    --c-warn: 245 158 11;
+    --sh-xs: 0 1px 2px rgb(0 0 0 / 0.05);
+    --sh-sm: 0 1px 3px rgb(0 0 0 / 0.1);
+    --sh-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    --sh-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    --sh-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+    --sh-highlight: inset 0 1px 0 rgb(255 255 255 / 0.1);
+  }
+
+  [data-theme="dark"] {
+    --c-canvas: 17 24 39;
+    --c-surface: 30 41 59;
+    --c-raised: 51 65 85;
+    --c-sunken: 15 23 42;
+    --c-line: 51 65 85;
+    --c-ink: 248 250 252;
+    --c-ink-muted: 203 213 225;
+    --c-ink-soft: 148 163 184;
+    --c-ink-faint: 100 116 139;
+    --c-accent: 99 102 241;
+    --c-accent-hover: 79 70 229;
+    --c-accent-ring: 99 102 241;
+    --c-on-accent: 255 255 255;
+    --c-danger: 248 113 113;
+    --c-warn: 245 158 11;
+    --sh-xs: 0 1px 2px rgb(0 0 0 / 0.4);
+    --sh-sm: 0 1px 3px rgb(0 0 0 / 0.5);
+    --sh-md: 0 4px 6px -1px rgb(0 0 0 / 0.5);
+    --sh-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5);
+    --sh-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5);
+    --sh-highlight: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  }
+
   body {
     @apply text-gray-900 dark:text-gray-100 antialiased;
     -webkit-tap-highlight-color: transparent;
@@ -26,7 +74,7 @@
 
 @layer components {
   .btn-primary {
-    @apply px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 active:scale-95 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 text-sm font-medium;
+    @apply px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover active:scale-95 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 text-sm font-medium;
   }
   .btn-secondary {
     @apply px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 active:scale-95 transition-all duration-150 text-sm font-medium;
@@ -35,7 +83,7 @@
     @apply px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 active:scale-95 transition-all duration-150 text-sm font-medium;
   }
   .input-field {
-    @apply w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all duration-150 text-sm;
+    @apply w-full px-3 py-2 border border-line/60 rounded-lg bg-surface text-ink focus:ring-2 focus:ring-accent focus:border-transparent outline-none transition-all duration-150 text-sm;
   }
   .card {
     @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700;
@@ -60,9 +108,9 @@
 .note-body img {
   @apply max-w-full h-auto rounded-lg my-2;
 }
-.note-body a {
-  @apply text-indigo-600 dark:text-indigo-400 underline;
-}
+  .note-body a {
+    @apply text-accent dark:text-accent underline;
+  }
 .note-body .checkbox-checked {
   @apply line-through text-gray-400;
 }

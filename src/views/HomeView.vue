@@ -53,7 +53,7 @@
         <NavItem
           icon="notebook"
           :label="sidebarCollapsed ? '' : '全部笔记'"
-          :active="notesStore.currentFolder === 'NOTES' && !notesStore.currentLabel && !selectedFavorite"
+          :active="notesStore.currentFolder === 'NOTES' && !notesStore.currentLabel"
           :count="notesStore.notes.filter(n => n.folder === 'NOTES').length"
           :collapsed="sidebarCollapsed"
           @click="selectAllNotes"
@@ -66,11 +66,12 @@
           @click="selectAllNotes"
         />
         <NavItem
-          icon="star"
-          :label="sidebarCollapsed ? '' : '收藏'"
-          :active="selectedFavorite"
+          icon="archive"
+          :label="sidebarCollapsed ? '' : '归档'"
+          :active="notesStore.currentFolder === 'ARCHIVED'"
+          :count="notesStore.archivedNotes.length"
           :collapsed="sidebarCollapsed"
-          @click="toggleFavoriteFilter"
+          @click="selectFolder('ARCHIVED')"
         />
         <NavItem
           icon="trash"
@@ -309,7 +310,7 @@
           </div>
 
           <!-- Grid view -->
-          <div v-if="viewMode === 'grid' && !notesStore.loading && displayedNotes.length > 0" class="p-3 grid grid-cols-2 gap-3">
+          <div v-if="viewMode === 'grid' && !notesStore.loading && displayedNotes.length > 0" class="p-3 columns-2 gap-3">
             <NoteCard
               v-for="note in displayedNotes"
               :key="note.id"
@@ -370,6 +371,12 @@
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             <div class="ml-auto flex items-center gap-1">
+              <button v-if="selectedNote?.folder === 'NOTES'" @click="archiveNote" class="fmt-btn" title="归档" type="button">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+              </button>
+              <button v-if="selectedNote?.folder === 'ARCHIVED'" @click="unarchiveNote" class="fmt-btn" title="取消归档" type="button">
+                <svg class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              </button>
               <button v-if="selectedNote?.folder === 'DELETED'" @click="restoreNote" class="fmt-btn" title="恢复" type="button">
                 <svg class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </button>
@@ -528,7 +535,6 @@ window.addEventListener('resize', () => {
     }
   }
 })
-const selectedFavorite = ref(false)
 const viewMode = ref('list')
 const sortOrder = ref('desc')
 const showPinDialog = ref(false)
@@ -563,9 +569,9 @@ const storagePercent = computed(() => {
 
 const currentViewTitle = computed(() => {
   if (notesStore.currentFolder === 'DELETED') return '回收站'
+  if (notesStore.currentFolder === 'ARCHIVED') return '归档'
   if (notesStore.searchQuery) return '搜索结果'
   if (notesStore.currentLabel) return `标签: ${notesStore.currentLabel}`
-  if (selectedFavorite.value) return '收藏'
   return '全部笔记'
 })
 
@@ -579,10 +585,7 @@ const isSelectedNoteUnlocked = computed(() => {
 })
 
 const displayedNotes = computed(() => {
-  let notes = notesStore.activeNotes
-  if (selectedFavorite.value) {
-    notes = notes.filter(n => n.pinned)
-  }
+  const notes = notesStore.activeNotes
   if (sortOrder.value === 'asc') {
     return [...notes].sort((a, b) => a.timestamp - b.timestamp)
   }
@@ -619,7 +622,6 @@ function selectAllNotes() {
   notesStore.currentFolder = 'NOTES'
   notesStore.currentLabel = null
   notesStore.searchQuery = ''
-  selectedFavorite.value = false
   selectedNote.value = null
 }
 
@@ -627,22 +629,12 @@ function selectFolder(folder) {
   notesStore.currentFolder = folder
   notesStore.currentLabel = null
   notesStore.searchQuery = ''
-  selectedFavorite.value = false
   selectedNote.value = null
 }
 
 function selectLabel(label) {
   notesStore.currentLabel = notesStore.currentLabel === label ? null : label
   notesStore.currentFolder = 'NOTES'
-  selectedFavorite.value = false
-  selectedNote.value = null
-}
-
-function toggleFavoriteFilter() {
-  selectedFavorite.value = !selectedFavorite.value
-  notesStore.currentFolder = 'NOTES'
-  notesStore.currentLabel = null
-  notesStore.searchQuery = ''
   selectedNote.value = null
 }
 
@@ -680,6 +672,20 @@ async function restoreNote() {
   if (!selectedNote.value) return
   await notesStore.restoreNote(selectedNote.value.id)
   selectedNote.value = null
+}
+
+async function archiveNote() {
+  if (!selectedNote.value) return
+  await notesStore.archiveNote(selectedNote.value.id)
+  selectedNote.value = null
+  settingsStore.scheduleAutoSync()
+}
+
+async function unarchiveNote() {
+  if (!selectedNote.value) return
+  await notesStore.unarchiveNote(selectedNote.value.id)
+  selectedNote.value = null
+  settingsStore.scheduleAutoSync()
 }
 
 async function permanentDelete(id) {

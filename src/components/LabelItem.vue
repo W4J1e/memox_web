@@ -1,7 +1,7 @@
 <template>
-  <div class="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg cursor-pointer transition-colors group" :class="{ 'bg-green-50 dark:bg-green-900/20': active }" @click="$emit('select', label)">
-    <span class="w-2 h-2 rounded-full shrink-0" :class="active ? 'bg-green-500' : hidden ? 'bg-gray-300 dark:bg-gray-600' : 'bg-green-400'"></span>
-    <span class="text-sm flex-1 truncate" :class="active ? 'text-green-700 dark:text-green-400 font-medium' : hidden ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-600 dark:text-gray-400'">
+  <div class="flex items-center gap-2 px-3 py-2 hover:bg-sunken dark:hover:bg-sunken rounded-lg cursor-pointer  transition-colors group" :class="{ 'bg-accent/10 dark:bg-accent/20': active }" @click="$emit('select', label)">
+    <span class="w-2 h-2 rounded-full shrink-0" :class="active ? 'bg-accent' : hidden ? 'bg-sunken dark:bg-sunken' : 'bg-accent-hover'"></span>
+    <span class="text-sm flex-1 truncate" :class="active ? 'text-accent dark:text-accent font-medium' : hidden ? 'text-ink-faint dark:text-ink-faint line-through' : 'text-ink-soft dark:text-ink-soft'">
       {{ label }}
     </span>
     <span v-if="count > 0" class="text-xs text-gray-400 dark:text-gray-500">

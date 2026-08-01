@@ -1,8 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getAllNotes, putNote, deleteNote as dbDeleteNote, putNotes, clearNotes } from '../utils/storage'
-import { createEmptyNote, createEmptyListItem, generateId } from '../utils/note-parser'
+import { createEmptyNote, createEmptyListItem, generateId, getAllAttachmentFileNames } from '../utils/note-parser'
 import { useSettingsStore } from './settings'
+
+// Mirrors the Android SyncRouter.syncNow() behaviour: every mutation schedules a
+// sync. scheduleAutoSync() already debounces (10s) and no-ops when sync is
+// disabled, so calling it from every store action is safe.
+function triggerAutoSync() {
+  try { useSettingsStore().scheduleAutoSync() } catch {}
+}
 
 export const useNotesStore = defineStore('notes', () => {
   const notes = ref([])
@@ -42,6 +49,10 @@ export const useNotesStore = defineStore('notes', () => {
 
   const deletedNotes = computed(() => {
     return notes.value.filter(n => n.folder === 'DELETED').sort((a, b) => b.timestamp - a.timestamp)
+  })
+
+  const archivedNotes = computed(() => {
+    return notes.value.filter(n => n.folder === 'ARCHIVED').sort((a, b) => b.timestamp - a.timestamp)
   })
 
   const allLabels = computed(() => {
@@ -87,6 +98,7 @@ export const useNotesStore = defineStore('notes', () => {
     } else {
       notes.value.push({ ...note })
     }
+    triggerAutoSync()
   }
 
   async function createNote(type = 'NOTE') {
@@ -106,12 +118,17 @@ export const useNotesStore = defineStore('notes', () => {
     if (note.folder === 'DELETED') {
       await dbDeleteNote(id)
       notes.value = notes.value.filter(n => n.id !== id)
-      try { await useSettingsStore().addTombstone(id) } catch {}
+      try {
+        const settings = useSettingsStore()
+        await settings.addTombstone(id)
+        await settings.addPendingAttachmentCleanup(getAllAttachmentFileNames(note))
+      } catch {}
     } else {
       note.folder = 'DELETED'
       note.modifiedTimestamp = Date.now()
       await putNote(note)
     }
+    triggerAutoSync()
   }
 
   async function restoreNote(id) {
@@ -120,21 +137,52 @@ export const useNotesStore = defineStore('notes', () => {
     note.folder = 'NOTES'
     note.modifiedTimestamp = Date.now()
     await putNote(note)
+    triggerAutoSync()
+  }
+
+  // Matches the Android Folder.ARCHIVED behaviour: archiving just moves the note
+  // between folders, so it round-trips through WebDAV sync unchanged.
+  async function archiveNote(id) {
+    const note = notes.value.find(n => n.id === id)
+    if (!note) return
+    note.folder = 'ARCHIVED'
+    note.modifiedTimestamp = Date.now()
+    await putNote(note)
+    triggerAutoSync()
+  }
+
+  async function unarchiveNote(id) {
+    const note = notes.value.find(n => n.id === id)
+    if (!note) return
+    note.folder = 'NOTES'
+    note.modifiedTimestamp = Date.now()
+    await putNote(note)
+    triggerAutoSync()
   }
 
   async function permanentDeleteNote(id) {
+    const note = notes.value.find(n => n.id === id)
     await dbDeleteNote(id)
     notes.value = notes.value.filter(n => n.id !== id)
-    try { await useSettingsStore().addTombstone(id) } catch {}
+    try {
+      const settings = useSettingsStore()
+      await settings.addTombstone(id)
+      if (note) await settings.addPendingAttachmentCleanup(getAllAttachmentFileNames(note))
+    } catch {}
+    triggerAutoSync()
   }
 
   async function emptyTrash() {
     const deleted = notes.value.filter(n => n.folder === 'DELETED')
+    const orphanAttachments = []
     for (const note of deleted) {
       await dbDeleteNote(note.id)
+      orphanAttachments.push(...getAllAttachmentFileNames(note))
       try { await useSettingsStore().addTombstone(note.id) } catch {}
     }
     notes.value = notes.value.filter(n => n.folder !== 'DELETED')
+    try { await useSettingsStore().addPendingAttachmentCleanup(orphanAttachments) } catch {}
+    triggerAutoSync()
   }
 
   async function togglePin(id) {
@@ -143,6 +191,7 @@ export const useNotesStore = defineStore('notes', () => {
     note.pinned = !note.pinned
     note.modifiedTimestamp = Date.now()
     await putNote(note)
+    triggerAutoSync()
   }
 
   async function updateNoteColor(id, color) {
@@ -151,6 +200,7 @@ export const useNotesStore = defineStore('notes', () => {
     note.color = color
     note.modifiedTimestamp = Date.now()
     await putNote(note)
+    triggerAutoSync()
   }
 
   async function updateNoteLabels(id, labels) {
@@ -159,6 +209,7 @@ export const useNotesStore = defineStore('notes', () => {
     note.labels = labels
     note.modifiedTimestamp = Date.now()
     await putNote(note)
+    triggerAutoSync()
   }
 
   async function updateNoteLocked(id, locked) {
@@ -167,6 +218,7 @@ export const useNotesStore = defineStore('notes', () => {
     note.locked = locked
     note.modifiedTimestamp = Date.now()
     await putNote(note)
+    triggerAutoSync()
   }
 
   async function replaceAllNotes(newNotes) {
@@ -183,6 +235,7 @@ export const useNotesStore = defineStore('notes', () => {
     loading,
     activeNotes,
     deletedNotes,
+    archivedNotes,
     allLabels,
     allLabelsIncludingHidden,
     loadNotes,
@@ -190,6 +243,8 @@ export const useNotesStore = defineStore('notes', () => {
     createNote,
     deleteNoteFromFolder,
     restoreNote,
+    archiveNote,
+    unarchiveNote,
     permanentDeleteNote,
     emptyTrash,
     togglePin,

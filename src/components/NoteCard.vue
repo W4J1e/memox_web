@@ -1,12 +1,12 @@
 <template>
   <div
-    class="card p-3 cursor-pointer hover:shadow-md transition-all duration-200 group flex flex-col"
+    class="card p-3 cursor-pointer hover:shadow-md transition-all duration-200 group flex flex-col break-inside-avoid mb-3"
     :style="noteStyle"
     @click="$emit('click')"
   >
     <!-- Thumbnail image -->
-    <div v-if="thumbnailUrl && !note.locked" class="w-full h-28 rounded-lg overflow-hidden mb-2 bg-gray-100 dark:bg-gray-700 shrink-0">
-      <img :src="thumbnailUrl" class="w-full h-full object-cover" loading="lazy" @error="$emit('img-error')" />
+    <div v-if="thumbnailUrl && !note.locked" class="w-full rounded-lg overflow-hidden mb-2 bg-gray-100 dark:bg-gray-700 shrink-0">
+      <img :src="thumbnailUrl" class="w-full h-auto block max-h-72 object-cover" loading="lazy" @error="$emit('img-error')" />
     </div>
 
     <!-- Title -->

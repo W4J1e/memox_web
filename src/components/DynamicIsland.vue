@@ -51,7 +51,7 @@ onUnmounted(() => { if (hideTimer) clearTimeout(hideTimer) })
       <div
         v-if="visible"
         class="pointer-events-auto inline-flex items-center gap-1.5 pl-3 pr-3.5 py-1 rounded-full text-[13px] leading-none text-white shadow-lg"
-        :class="mode === 'error' ? 'bg-red-600' : 'bg-[#2B2B2B]'"
+        :class="mode === 'error' ? 'bg-danger' : 'bg-[#2B2B2B]'"
       >
         <svg v-if="mode === 'syncing'" class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
