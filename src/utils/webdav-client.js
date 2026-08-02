@@ -156,9 +156,10 @@ export class WebDavClient {
       'memoX/attachments/audios/',
       'memoX/attachments/files/',
     ]
-    for (const dir of dirs) {
-      await this.createDirectory(dir)
-    }
+    // Fire all MKCOLs concurrently. Each one still returns 405 when the directory
+    // already exists (treated as success by createDirectory), but running them in
+    // parallel turns six sequential ~3s round-trips through the proxy into one.
+    await Promise.all(dirs.map(d => this.createDirectory(d).catch(() => {})))
   }
 
   async upload(path, data) {

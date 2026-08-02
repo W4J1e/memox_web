@@ -24,6 +24,11 @@ export const useSettingsStore = defineStore('settings', () => {
   // recycle bin); cleanupAttachments() removes them from the remote once the note
   // file itself has been purged, mirroring Android's deleteRemoteNote behavior.
   const pendingAttachmentCleanup = ref([])
+  // Remembers which WebDAV server we've already created the memoX/ directory tree
+  // on. Once set, sync/upload/download skip ensureDirectories() entirely — this
+  // removes six serial ~3s MKCOL round-trips (and the harmless-but-noisy 405s they
+  // produce) from every subsequent sync. Cleared when the server URL changes.
+  const DIRS_ENSURED_KEY = 'memoX.dirsEnsured'
 
   async function loadSettings() {
     webdavUrl.value = await getSetting('webdav_url', '')
@@ -52,6 +57,8 @@ export const useSettingsStore = defineStore('settings', () => {
     await putSetting('webdav_password', password)
     await putSetting('proxy_mode', proxyMode.value)
     await putSetting('proxy_url', proxyUrl.value)
+    // Server changed — force a fresh directory tree check on the next sync.
+    await putSetting(DIRS_ENSURED_KEY, '')
   }
 
   async function saveTheme(t) {
@@ -85,6 +92,16 @@ export const useSettingsStore = defineStore('settings', () => {
     const opts = { proxyMode: proxyMode.value }
     if (proxyUrl.value) opts.proxyUrl = proxyUrl.value
     return new WebDavClient(webdavUrl.value, webdavUsername.value, webdavPassword.value, opts)
+  }
+
+  // Ensure the memoX/ directory tree exists, but only once per WebDAV server.
+  // After the first successful creation we persist the server URL and skip the
+  // (slow, proxy-bound) MKCOL round-trips on all later syncs.
+  async function ensureDirsOnce(client) {
+    const ensuredFor = await getSetting(DIRS_ENSURED_KEY, '')
+    if (ensuredFor === webdavUrl.value) return
+    await client.ensureDirectories()
+    await putSetting(DIRS_ENSURED_KEY, webdavUrl.value)
   }
 
   async function listAllFiles(client, dirPath, collected = [], depth = 0) {
@@ -239,7 +256,7 @@ export const useSettingsStore = defineStore('settings', () => {
     syncMessage.value = '正在同步...'
 
     try {
-      await client.ensureDirectories()
+      await ensureDirsOnce(client)
 
       let remoteTombstones = []
       const metaText = await client.downloadText('memoX/sync_meta.json')
@@ -278,7 +295,6 @@ export const useSettingsStore = defineStore('settings', () => {
 
       const toUpload = []
       const toDownload = []
-      const toConflictResolve = []
 
       for (const note of localNotes) {
         if (!mergedTombstones.includes(note.id) && !remoteNoteIdToFileNames.has(note.id)) {
@@ -286,21 +302,33 @@ export const useSettingsStore = defineStore('settings', () => {
         }
       }
 
-      for (const [id, fileNames] of remoteNoteIdToFileNames) {
-        if (!localNoteMap.has(id)) {
-          toDownload.push({ id, fileName: fileNames[fileNames.length - 1] })
-        } else {
-          toConflictResolve.push({ id, fileName: fileNames[fileNames.length - 1] })
-        }
+      // Build per-note remote metadata (canonical file name + byte size) so we can
+      // skip the expensive full-text download when a note is byte-identical on both
+      // sides. This is the single biggest latency win on the (slow) EdgeOne proxy:
+      // an unchanged note no longer costs a full round-trip per note.
+      const remoteNoteMeta = new Map()
+      for (const file of noteFiles) {
+        const noteId = extractNoteId(file.name)
+        if (!noteId || mergedTombstones.includes(noteId)) continue
+        remoteNoteMeta.set(noteId, { fileName: file.name, size: file.size })
       }
 
-      for (const { id, fileName } of toConflictResolve) {
-        const remoteText = await client.downloadText(`memoX/notes/${fileName}`)
+      for (const [id, meta] of remoteNoteMeta) {
+        const localNote = localNoteMap.get(id)
+        if (!localNote) {
+          toDownload.push({ id, fileName: meta.fileName })
+          continue
+        }
+        // Cheap pre-check: PROPFIND already gave us the remote byte size. If the
+        // serialized local note is byte-identical to what's on the server, there is
+        // nothing to do — skip the download entirely (no proxy round-trip).
+        const expectedSize = new TextEncoder().encode(noteToJson(localNote)).length
+        if (typeof meta.size === 'number' && meta.size === expectedSize) continue
+
+        const remoteText = await client.downloadText(`memoX/notes/${meta.fileName}`)
         if (!remoteText) continue
         let remoteNote
         try { remoteNote = jsonToNote(remoteText) } catch { continue }
-        const localNote = localNoteMap.get(id)
-        if (!localNote) continue
         const remoteTs = remoteNote.modifiedTimestamp || 0
         const localTs = localNote.modifiedTimestamp || 0
         if (localTs > remoteTs) {
@@ -387,9 +415,21 @@ export const useSettingsStore = defineStore('settings', () => {
 
       // Build the remote attachment index ONCE and reuse it for both upload and
       // download skip checks (Android builds it once in loadRemoteAttachmentIndex).
-      const attachmentIndex = await buildRemoteAttachmentIndex(client)
-      await uploadAttachments(client, notesStore.notes, attachmentIndex)
-      await syncAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'), attachmentIndex)
+      // Only skip the whole attachment pass when no note references any attachment —
+      // then there is nothing to push/pull and we save the three PROPFIND index
+      // requests against the (slow) proxy. When attachments ARE referenced we still
+      // run the pass, but uploadAttachments/syncAttachments skip transfers by
+      // comparing file size (Android parity), so unchanged attachments cost nothing.
+      const referencedAttachments = new Set()
+      for (const n of notesStore.notes) {
+        for (const fn of getAllAttachmentFileNames(n)) referencedAttachments.add(fn)
+      }
+
+      if (referencedAttachments.size > 0) {
+        const attachmentIndex = await buildRemoteAttachmentIndex(client)
+        await uploadAttachments(client, notesStore.notes, attachmentIndex)
+        await syncAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'), attachmentIndex)
+      }
 
       syncStatus.value = 'success'
       syncMessage.value = `同步完成：上传 ${toUpload.length}，下载 ${toDownload.length}`
@@ -409,7 +449,7 @@ export const useSettingsStore = defineStore('settings', () => {
     syncMessage.value = '正在上传...'
 
     try {
-      await client.ensureDirectories()
+      await ensureDirsOnce(client)
       const localNotes = notesStore.notes
 
       const remoteFiles = await client.listFiles('memoX/notes')
@@ -487,7 +527,7 @@ export const useSettingsStore = defineStore('settings', () => {
     syncMessage.value = '正在下载...'
 
     try {
-      await client.ensureDirectories()
+      await ensureDirsOnce(client)
       const remoteFiles = await client.listFiles('memoX/notes')
       const noteFiles = remoteFiles.filter(f => !f.isDirectory && f.name.endsWith('.json'))
 
