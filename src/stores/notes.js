@@ -89,8 +89,13 @@ export const useNotesStore = defineStore('notes', () => {
     }
   }
 
-  async function saveNote(note) {
-    note.modifiedTimestamp = Date.now()
+  async function saveNote(note, opts = {}) {
+    // opts.preserveTimestamp: syncing in a remote note that already carries the
+    // correct modifiedTimestamp — don't bump it to now or the next sync will see
+    // local > remote and re-upload an unchanged note.
+    // opts.silent: sync-internal writes must not re-trigger auto-sync (they run
+    // while syncStatus === 'syncing' anyway, but this keeps it explicit).
+    if (!opts.preserveTimestamp) note.modifiedTimestamp = Date.now()
     await putNote(note)
     const idx = notes.value.findIndex(n => n.id === note.id)
     if (idx >= 0) {
@@ -98,7 +103,7 @@ export const useNotesStore = defineStore('notes', () => {
     } else {
       notes.value.push({ ...note })
     }
-    triggerAutoSync()
+    if (!opts.silent) triggerAutoSync()
   }
 
   async function createNote(type = 'NOTE') {

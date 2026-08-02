@@ -104,47 +104,60 @@ export const useSettingsStore = defineStore('settings', () => {
     return collected
   }
 
-  async function uploadAttachments(client, notes) {
+  // Build a single remote attachment index (name -> byte size) for the three
+  // attachment dirs. Mirrors Android's loadRemoteAttachmentIndex: one listing,
+  // reused by upload skip + download skip + orphan cleanup so the whole sync
+  // issues far fewer PROPFIND requests against the (slow) EdgeOne proxy.
+  async function buildRemoteAttachmentIndex(client) {
+    const index = { images: new Map(), audios: new Map(), files: new Map() }
+    const dirs = [
+      ['memoX/attachments/images/', index.images],
+      ['memoX/attachments/audios/', index.audios],
+      ['memoX/attachments/files/', index.files],
+    ]
+    for (const [dir, map] of dirs) {
+      try {
+        const files = await client.listFiles(dir)
+        for (const f of files) {
+          if (!f.isDirectory) map.set(f.name, f.size)
+        }
+      } catch {}
+    }
+    return index
+  }
+
+  function attachmentKey(fileName) {
+    const dir = getAttachmentDir(fileName)
+    if (dir.includes('/images/')) return 'images'
+    if (dir.includes('/audios/')) return 'audios'
+    return 'files'
+  }
+
+  async function uploadAttachments(client, notes, index = null) {
     const neededFileNames = new Set()
     for (const note of notes) {
       const names = getAllImageFileNames(note)
       for (const n of names) neededFileNames.add(n)
     }
 
-    console.log('[memoX] uploadAttachments: need', neededFileNames.size, 'files:', [...neededFileNames])
-
     if (neededFileNames.size === 0) return 0
+    if (!index) index = await buildRemoteAttachmentIndex(client)
 
     let uploaded = 0
-    const allRemoteFiles = []
-    const searchDirs = ['memoX/attachments/', 'memoX/attachments/files/', 'memoX/attachments/images/', 'memoX/attachments/audios/']
-    for (const dir of searchDirs) {
-      try {
-        await listAllFiles(client, dir, allRemoteFiles)
-      } catch {}
-    }
-
-    const existingRemoteNames = new Set(allRemoteFiles.map(f => f.name))
-
     for (const fn of Array.from(neededFileNames)) {
-      if (existingRemoteNames.has(fn)) continue
-      try {
-        const blob = await getAttachment(fn)
-        if (!blob || blob.size === 0) {
-          console.warn('[memoX] No local attachment for:', fn)
-          continue
-        }
-        const targetDir = getAttachmentDir(fn)
-        const targetPath = `${targetDir}${fn}`
-        const ok = await client.upload(targetPath, blob)
-        if (ok) {
-          uploaded++
-          console.log('[memoX] Uploaded attachment:', targetPath, blob.size, 'bytes')
-        } else {
-          console.warn('[memoX] Upload failed for:', targetPath)
-        }
-      } catch (e) {
-        console.warn('[memoX] Failed to upload', fn, e.message)
+      const key = attachmentKey(fn)
+      const dir = getAttachmentDir(fn)
+      const remoteSize = index[key].get(fn)
+      let blob
+      try { blob = await getAttachment(fn) } catch { continue }
+      if (!blob || blob.size === 0) continue
+      // Android's optimization: remote already has the same file (name + size),
+      // skip the re-upload instead of pushing every attachment every sync.
+      if (remoteSize !== undefined && remoteSize === blob.size) continue
+      const ok = await client.upload(`${dir}${fn}`, blob)
+      if (ok) {
+        uploaded++
+        index[key].set(fn, blob.size)
       }
     }
 
@@ -166,44 +179,30 @@ export const useSettingsStore = defineStore('settings', () => {
     return 'memoX/attachments/files/'
   }
 
-  async function syncAttachments(client, notes) {
+  async function syncAttachments(client, notes, index = null) {
     const neededFileNames = new Set()
     for (const note of notes) {
       const names = getAllImageFileNames(note)
       for (const n of names) neededFileNames.add(n)
     }
 
-    let downloaded = 0
-    if (neededFileNames.size === 0) return downloaded
+    if (neededFileNames.size === 0) return 0
+    if (!index) index = await buildRemoteAttachmentIndex(client)
 
+    let downloaded = 0
     for (const fn of Array.from(neededFileNames)) {
+      const key = attachmentKey(fn)
+      const dir = getAttachmentDir(fn)
+      const remoteSize = index[key].get(fn)
+      // Skip if we already have it locally with matching size (Android parity):
+      // never re-download an attachment we already own.
       try {
         const existing = await getAttachment(fn)
-        if (existing) { neededFileNames.delete(fn) }
+        if (existing && existing.size > 0 && (remoteSize === undefined || remoteSize === existing.size)) continue
       } catch {}
-    }
-    if (neededFileNames.size === 0) return downloaded
-
-    const allRemoteFiles = []
-    const searchDirs = ['memoX/attachments/', 'memoX/attachments/files/', 'memoX/attachments/images/', 'memoX/attachments/audios/']
-    for (const dir of searchDirs) {
+      if (remoteSize === undefined) continue
       try {
-        await listAllFiles(client, dir, allRemoteFiles)
-      } catch {}
-    }
-
-    const remoteFileMap = new Map()
-    for (const f of allRemoteFiles) {
-      if (!remoteFileMap.has(f.name)) {
-        remoteFileMap.set(f.name, f.path)
-      }
-    }
-
-    for (const fn of Array.from(neededFileNames)) {
-      const remotePath = remoteFileMap.get(fn)
-      if (!remotePath) continue
-      try {
-        const blob = await client.downloadBlob(remotePath)
+        const blob = await client.downloadBlob(`${dir}${fn}`)
         if (blob && blob.size > 0) {
           await putAttachment(fn, blob)
           downloaded++
@@ -297,17 +296,23 @@ export const useSettingsStore = defineStore('settings', () => {
 
       for (const { id, fileName } of toConflictResolve) {
         const remoteText = await client.downloadText(`memoX/notes/${fileName}`)
-        if (remoteText) {
-          try {
-            const remoteNote = jsonToNote(remoteText)
-            const localNote = localNoteMap.get(id)
-            if (remoteNote.modifiedTimestamp > localNote.modifiedTimestamp) {
-              await notesStore.saveNote(remoteNote)
-            } else {
-              toUpload.push(localNote)
-            }
-          } catch {}
+        if (!remoteText) continue
+        let remoteNote
+        try { remoteNote = jsonToNote(remoteText) } catch { continue }
+        const localNote = localNoteMap.get(id)
+        if (!localNote) continue
+        const remoteTs = remoteNote.modifiedTimestamp || 0
+        const localTs = localNote.modifiedTimestamp || 0
+        if (localTs > remoteTs) {
+          // Local is newer -> push it up.
+          toUpload.push(localNote)
+        } else if (localTs < remoteTs) {
+          // Remote is newer -> pull it, but preserve its modifiedTimestamp so the
+          // next sync sees equal timestamps and skips (Android keeps the remote
+          // value too, avoiding per-run re-uploads of unchanged notes).
+          await notesStore.saveNote(remoteNote, { preserveTimestamp: true, silent: true })
         }
+        // localTs === remoteTs -> already identical, skip (no pointless re-upload)
       }
 
       for (const note of toUpload) {
@@ -380,8 +385,11 @@ export const useSettingsStore = defineStore('settings', () => {
       await putSetting('tombstones', mergedTombstones)
       await putSetting('lastSyncTime', lastSyncTime.value)
 
-      await uploadAttachments(client, notesStore.notes)
-      await syncAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'))
+      // Build the remote attachment index ONCE and reuse it for both upload and
+      // download skip checks (Android builds it once in loadRemoteAttachmentIndex).
+      const attachmentIndex = await buildRemoteAttachmentIndex(client)
+      await uploadAttachments(client, notesStore.notes, attachmentIndex)
+      await syncAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'), attachmentIndex)
 
       syncStatus.value = 'success'
       syncMessage.value = `同步完成：上传 ${toUpload.length}，下载 ${toDownload.length}`
