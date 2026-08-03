@@ -90,7 +90,10 @@ export const useSettingsStore = defineStore('settings', () => {
   function getClient() {
     if (!webdavUrl.value) return null
     const opts = { proxyMode: proxyMode.value }
-    if (proxyUrl.value) opts.proxyUrl = proxyUrl.value
+    // Only forward a custom proxy URL in proxy mode. In auto/direct it must stay
+    // out of the client so a leftover Cloudflare Worker URL can never hijack auto
+    // mode (the WebDavClient also guards this, but belt-and-suspenders).
+    if (proxyMode.value === 'proxy' && proxyUrl.value) opts.proxyUrl = proxyUrl.value
     return new WebDavClient(webdavUrl.value, webdavUsername.value, webdavPassword.value, opts)
   }
 

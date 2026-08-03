@@ -178,10 +178,10 @@
               <input
                 v-model="webdavForm.proxyUrl"
                 type="url"
-                placeholder="https://memox.w4j1e.workers.dev/"
+                placeholder="https://your-proxy.example.com/dav/"
                 class="input-field"
               />
-              <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">使用 Cloudflare Worker 代理绕过 CORS，也可填写自建代理地址</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">请填写你自建的代理服务地址，客户端会将真实 WebDAV 地址通过 X-WebDAV-Url 请求头传递</p>
             </div>
 
             <div class="flex gap-2 pt-2">
@@ -211,10 +211,12 @@
           </div>
 
           <!-- CORS / Proxy info -->
-          <div class="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs">
-            <p class="font-medium mb-1">关于跨域问题</p>
-            <p>浏览器直连 WebDAV 受 CORS 限制。选择「代理模式」可通过 Cloudflare Worker 代理绕过 CORS，开箱即用。若 WebDAV 服务器支持 CORS，可选择「直连」模式。</p>
-          </div>
+            <div class="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs">
+              <p class="font-medium mb-1">关于连接模式</p>
+              <p><b>自动</b>：通过站点同源的 <code>/api/dav/</code> 接口连接，适用于 EdgeOne Makers（自带边缘函数）和自建服务器（需配置反向代理暴露 /api/dav/），无需填写任何地址。</p>
+              <p class="mt-1"><b>代理模式</b>：使用你自己的代理服务，需手动填写完整代理地址。</p>
+              <p class="mt-1"><b>直连模式</b>：直接访问 WebDAV 服务器，仅当该服务器开启了 CORS 时才可用，否则会因跨域而被浏览器拦截。</p>
+            </div>
         </section>
 
         <!-- Data management -->
@@ -372,19 +374,18 @@ const connResult = ref(null)
 
 const proxyModeHint = computed(() => {
   switch (webdavForm.value.proxyMode) {
-    case 'auto': return '自动通过代理绕过CORS'
-    case 'proxy': return '通过 Cloudflare Worker 代理访问WebDAV（推荐部署时使用）'
-    case 'direct': return '直接连接WebDAV服务器（需要服务器支持CORS）'
+    case 'auto': return '自动通过当前站点同源的 /api/dav/ 接口连接（EdgeOne Makers 边缘函数、自建 OpenResty 反向代理均适用），无需任何配置'
+    case 'proxy': return '通过你自建的代理服务访问 WebDAV，请填写完整的代理地址'
+    case 'direct': return '直接连接 WebDAV 服务器，仅当该服务器允许跨域（CORS）时才可用，否则会连接失败'
     default: return ''
   }
 })
 
-const DEFAULT_WORKER_URL = 'https://memox.w4j1e.workers.dev/'
-
 function selectProxyMode(mode) {
   webdavForm.value.proxyMode = mode
-  if (mode === 'proxy' && !webdavForm.value.proxyUrl) {
-    webdavForm.value.proxyUrl = DEFAULT_WORKER_URL
+  // auto / direct 不使用自定义代理地址，清空任何残留值，避免它日后劫持 auto 模式
+  if (mode !== 'proxy') {
+    webdavForm.value.proxyUrl = ''
   }
 }
 
@@ -394,7 +395,9 @@ onMounted(() => {
     username: settingsStore.webdavUsername,
     password: settingsStore.webdavPassword,
     proxyMode: settingsStore.proxyMode,
-    proxyUrl: settingsStore.proxyUrl,
+    // Only keep a stored proxy URL when actually in proxy mode; otherwise drop any
+    // stale value (e.g. an old Cloudflare Worker prefill) so it can't linger.
+    proxyUrl: settingsStore.proxyMode === 'proxy' ? settingsStore.proxyUrl : '',
   }
 })
 

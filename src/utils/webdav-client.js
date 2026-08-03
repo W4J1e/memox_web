@@ -32,9 +32,20 @@ export class WebDavClient {
   }
 
   _getProxyPath() {
-    if (this.proxyUrl) {
+    if (this.proxyMode === 'auto') {
+      // Auto mode always routes through the SAME-ORIGIN /api/dav/ endpoint. This is
+      // the deployment contract for every supported host:
+      //   - EdgeOne Makers: backed by the edge/cloud function at /api/dav/
+      //   - Self-hosted (OpenResty, Nginx, ...): a reverse proxy at /api/dav/
+      // Both are same-origin, so the browser never triggers CORS and no external
+      // proxy is needed. We deliberately IGNORE any previously-entered proxyUrl so
+      // a stale Cloudflare Worker address can never hijack auto mode.
+      return PROXY_PATH
+    }
+    if (this.proxyMode === 'proxy' && this.proxyUrl) {
       return this.proxyUrl.replace(/\/+$/, '') + '/'
     }
+    // proxy mode with no URL entered yet — fall back to same-origin best effort.
     return PROXY_PATH
   }
 
