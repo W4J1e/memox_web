@@ -139,7 +139,12 @@ app.use(async (req, res) => {
     // sync/view. This dramatically cuts Cloud Function invocations and latency,
     // and means a second view of the same image never hits the 504 risk again.
     if (method === 'GET' && /\/attachments\//.test(webdavPath)) {
-      res.setHeader('Cache-Control', 'public, max-age=604800, immutable')
+      // Do NOT cache attachment responses. Edge caching of 206/partial bodies (or a
+      // truncated stream) gets served to later range requests and corrupts reassembled
+      // images (classic "top half renders, bottom half gray"). The client already skips
+      // unchanged attachments by size, so caching here buys no real speed and only
+      // causes corruption. no-store keeps every byte fresh from the origin.
+      res.setHeader('Cache-Control', 'no-store')
       res.setHeader('Accept-Ranges', 'bytes')
     }
 

@@ -223,7 +223,11 @@ export const useSettingsStore = defineStore('settings', () => {
       if (remoteSize === undefined) continue
       try {
         const blob = await client.downloadBlob(`${dir}${fn}`)
-        if (blob && blob.size > 0) {
+        // Only persist a download that is actually complete. A truncated/partial
+        // body (size != remote) must never be stored, or the size-based skip check
+        // below would lock in a broken image and re-download it forever from the
+        // same bad cache entry.
+        if (blob && blob.size > 0 && (remoteSize === undefined || blob.size === remoteSize)) {
           await putAttachment(fn, blob)
           downloaded++
         }

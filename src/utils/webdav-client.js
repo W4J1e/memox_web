@@ -190,34 +190,47 @@ export class WebDavClient {
   // Download a binary attachment. For large files we fetch in byte ranges so a
   // single request never exceeds the EdgeOne gateway timeout (which caused 504s
   // on big images proxied through the Cloud Function). Small files use one GET.
-  async downloadBlob(path, { chunkSize = 2 * 1024 * 1024 } = {}) {
-    try {
-      const head = await this.request('HEAD', path)
-      const total = head.ok ? parseInt(head.headers.get('content-length') || '0', 10) : 0
+  // After assembly we verify the byte count against the HEAD Content-Length and
+  // retry once (cache-busted) on mismatch — a truncated/partial body must never
+  // be persisted, or the size-based skip check would lock in a broken image.
+  async downloadBlob(path, { chunkSize = 2 * 1024 * 1024, retries = 1 } = {}) {
+    const head = await this.request('HEAD', path)
+    const total = head.ok ? parseInt(head.headers.get('content-length') || '0', 10) : 0
+
+    const fetchOnce = async (urlPath) => {
       if (total > chunkSize) {
-        const parts = []
-        for (let start = 0; start < total; start += chunkSize) {
-          const end = Math.min(start + chunkSize - 1, total - 1)
-          const resp = await this.request('GET', path, null, { 'Range': `bytes=${start}-${end}` })
-          if (resp.status === 200) {
-            // Upstream ignored Range -> this response is the whole file.
+        try {
+          const parts = []
+          for (let start = 0; start < total; start += chunkSize) {
+            const end = Math.min(start + chunkSize - 1, total - 1)
+            const resp = await this.request('GET', urlPath, null, { 'Range': `bytes=${start}-${end}` })
+            if (resp.status === 200) {
+              // Upstream ignored Range -> this response is the whole file.
+              return new Blob([new Uint8Array(await resp.arrayBuffer())])
+            }
+            if (resp.status !== 206) {
+              return await this._fullBlob(urlPath)
+            }
             const buf = await resp.arrayBuffer()
-            return new Blob([new Uint8Array(buf)])
+            if (!buf.byteLength) break
+            parts.push(new Uint8Array(buf))
           }
-          if (resp.status !== 206) {
-            return this._fullBlob(path)
-          }
-          const buf = await resp.arrayBuffer()
-          if (!buf.byteLength) break
-          parts.push(new Uint8Array(buf))
+          if (parts.length === 0) return await this._fullBlob(urlPath)
+          return new Blob(parts)
+        } catch {
+          return await this._fullBlob(urlPath)
         }
-        if (parts.length === 0) return this._fullBlob(path)
-        return new Blob(parts)
       }
-    } catch {
-      // Fall through to a single full GET below.
+      return await this._fullBlob(urlPath)
     }
-    return this._fullBlob(path)
+
+    let blob = await fetchOnce(path)
+    if (blob && total > 0 && blob.size !== total && retries > 0) {
+      // Size mismatch => a partial/truncated body slipped through (often a stale
+      // cached 206). Bust the CDN cache and fetch the whole file once more.
+      blob = await fetchOnce(path + '?cb=' + Date.now())
+    }
+    return blob
   }
 
   async _fullBlob(path) {
