@@ -1,6 +1,10 @@
-export function spansToHtml(body, spans) {
+export function spansToHtml(body, spans, images = []) {
   if (!body) return ''
-  if (!spans || spans.length === 0) return escapeHtml(body).replace(/\n/g, '<br>')
+  const imgCursor = { index: 0 }
+
+  if (!spans || spans.length === 0) {
+    return renderTextWithImages(body, images, imgCursor)
+  }
 
   const sorted = [...spans]
     .filter(s => s.start < s.end && s.start >= 0 && s.end <= body.length)
@@ -22,7 +26,7 @@ export function spansToHtml(body, spans) {
 
   for (const ev of events) {
     if (ev.pos > pos) {
-      result += escapeHtml(body.substring(pos, ev.pos)).replace(/\n/g, '<br>')
+      result += renderTextWithImages(body.substring(pos, ev.pos), images, imgCursor)
       pos = ev.pos
     }
     if (ev.type === 'open') {
@@ -44,7 +48,7 @@ export function spansToHtml(body, spans) {
   }
 
   if (pos < body.length) {
-    result += escapeHtml(body.substring(pos)).replace(/\n/g, '<br>')
+    result += renderTextWithImages(body.substring(pos), images, imgCursor)
   }
 
   while (openTags.length > 0) {
@@ -52,6 +56,51 @@ export function spansToHtml(body, spans) {
   }
 
   return result
+}
+
+// Render plain text, escaping special characters and newlines, while replacing
+// the object-replacement character (\uFFFC) — Android's marker for an inline
+// image — with an <img> placeholder. The placeholder carries only the
+// attachment's file name (resolved to a blob URL after the HTML is mounted in
+// HomeView), so the editor shows the picture in situ instead of the literal
+// "OBJ" glyph. Inline images are matched to note.images positionally by
+// imgCursor: the k-th \uFFFC maps to images[k], mirroring how Android stores
+// inline images alongside the body text.
+function renderTextWithImages(text, images, imgCursor) {
+  let out = ''
+  for (const ch of text) {
+    if (ch === '\uFFFC') {
+      const img = images[imgCursor.index]
+      const fname = img ? attachmentName(img) : null
+      if (fname) {
+        out += `<img class="inline-image" data-fname="${escapeAttr(fname)}" contenteditable="false" alt="">`
+      }
+      imgCursor.index++
+    } else if (ch === '\n') {
+      out += '<br>'
+    } else {
+      out += escapeHtml(ch)
+    }
+  }
+  return out
+}
+
+function attachmentName(img) {
+  if (!img) return null
+  if (typeof img === 'string') {
+    const parts = img.split('/')
+    return parts[parts.length - 1] || img
+  }
+  if (typeof img !== 'object') return null
+  for (const key of ['localName', 'fileName', 'filename', 'name', 'originalName', 'path', 'uri']) {
+    const v = img[key]
+    if (v && typeof v === 'string') {
+      const clean = v.split('?')[0].split('#')[0]
+      const parts = clean.split('/')
+      return parts[parts.length - 1] || clean
+    }
+  }
+  return null
 }
 
 function spanToTags(span) {
@@ -126,6 +175,16 @@ export function htmlToSpans(html) {
 
     if (tagNameLower === 'br') {
       addNewline()
+      return
+    }
+
+    // Inline image placeholders (rendered by spansToHtml as <img data-fname>)
+    // must round-trip back into the plain body as a single \uFFFC character, so
+    // the text offset stays aligned with the saved body and the picture keeps
+    // its position on the next render. We advance the offset by one (like a
+    // normal character) but emit no formatting span for it.
+    if (tagNameLower === 'img') {
+      addText('\uFFFC')
       return
     }
 
@@ -221,6 +280,13 @@ function elementToPlainText(element) {
     
     if (tagName === 'BR') {
       result += '\n'
+      return
+    }
+
+    // Inline image placeholder -> one \uFFFC char (mirrors htmlToSpans) so the
+    // plain text preserves the picture's position within the note body.
+    if (tagName === 'IMG') {
+      result += '\uFFFC'
       return
     }
     

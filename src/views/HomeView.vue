@@ -432,6 +432,42 @@
                   <img :src="url" class="w-full h-auto rounded-xl" loading="lazy" @error="onPreviewImageError(idx)" @click="openImage(url)" style="cursor: zoom-in" />
                 </div>
               </div>
+
+              <!-- Audio attachments -->
+              <div v-if="previewAudioUrls.length > 0" class="mt-4 space-y-2">
+                <div
+                  v-for="(item, idx) in previewAudioUrls"
+                  :key="'audio_' + idx"
+                  class="flex items-center gap-3 bg-gray-100 dark:bg-gray-700 rounded-xl p-3"
+                >
+                  <svg class="w-6 h-6 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                  </svg>
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm text-gray-700 dark:text-gray-200 truncate mb-1">{{ item.name }}</div>
+                    <audio :src="item.url" controls class="w-full h-8"></audio>
+                  </div>
+                </div>
+              </div>
+
+              <!-- File attachments -->
+              <div v-if="previewFileUrls.length > 0" class="mt-4 grid grid-cols-1 gap-2">
+                <a
+                  v-for="(item, idx) in previewFileUrls"
+                  :key="'file_' + idx"
+                  :href="item.url"
+                  :download="item.name"
+                  class="flex items-center gap-3 bg-gray-100 dark:bg-gray-700 rounded-xl p-3 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  <svg class="w-6 h-6 text-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9l-6-6H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  <span class="text-sm text-gray-700 dark:text-gray-200 truncate">{{ item.name }}</span>
+                  <svg class="w-4 h-4 text-gray-400 ml-auto shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                </a>
+              </div>
             </div>
           </div>
         </template>
@@ -542,6 +578,8 @@ const pinInput = ref('')
 const pinError = ref(false)
 const pinInputRef = ref(null)
 const previewImageUrls = ref([])
+const previewAudioUrls = ref([])
+const previewFileUrls = ref([])
 const createdPreviewUrls = new Set()
 const listThumbnails = ref({})
 const createdListThumbnails = new Set()
@@ -712,22 +750,78 @@ async function toggleLabelVisibility(label) {
 }
 
 async function loadPreviewImages() {
-  if (!selectedNote.value?.images) return
-  const imgs = selectedNote.value.images
+  if (!selectedNote.value) return
+  const note = selectedNote.value
+
+  // Inline images are rendered in-place by the editor (spansToHtml). The bottom
+  // gallery should show only the NON-inline images, so compute the set of file
+  // names that are rendered inline (the first k images, where k = number of
+  // \uFFFC markers in the body) and exclude them from the gallery.
+  const inlineCount = (note.body || '').split('\uFFFC').length - 1
+  const inlineNames = new Set()
+  for (let i = 0; i < inlineCount && i < (note.images || []).length; i++) {
+    const fn = getImageFileName(note.images[i])
+    if (fn) inlineNames.add(fn)
+  }
+
   const urls = []
-  for (const img of imgs) {
-    try {
+  if (note.images) {
+    for (const img of note.images) {
       const fn = getImageFileName(img)
-      if (!fn) continue
-      const blob = await getAttachment(fn)
-      if (blob) {
-        const url = URL.createObjectURL(blob)
-        urls.push(url)
-        createdPreviewUrls.add(url)
-      }
-    } catch {}
+      if (!fn || inlineNames.has(fn)) continue
+      try {
+        const blob = await getAttachment(fn)
+        if (blob) {
+          const url = URL.createObjectURL(blob)
+          urls.push(url)
+          createdPreviewUrls.add(url)
+        }
+      } catch {}
+    }
   }
   previewImageUrls.value = urls
+
+  // Audio attachments: show an inline player.
+  const audioUrls = []
+  if (note.audios) {
+    for (const a of note.audios) {
+      try {
+        const fn = getImageFileName(a)
+        if (!fn) continue
+        const blob = await getAttachment(fn)
+        if (blob) {
+          const url = URL.createObjectURL(blob)
+          audioUrls.push({ url, name: attachmentDisplayName(a) })
+          createdPreviewUrls.add(url)
+        }
+      } catch {}
+    }
+  }
+  previewAudioUrls.value = audioUrls
+
+  // Other file attachments (pdf, doc, ...): show a download link.
+  const fileUrls = []
+  if (note.files) {
+    for (const f of note.files) {
+      try {
+        const fn = getImageFileName(f)
+        if (!fn) continue
+        const blob = await getAttachment(fn)
+        if (blob) {
+          const url = URL.createObjectURL(blob)
+          fileUrls.push({ url, name: attachmentDisplayName(f) })
+          createdPreviewUrls.add(url)
+        }
+      } catch {}
+    }
+  }
+  previewFileUrls.value = fileUrls
+}
+
+function attachmentDisplayName(att) {
+  if (!att) return '附件'
+  if (att && typeof att === 'object' && att.originalName) return att.originalName
+  return getImageFileName(att) || '附件'
 }
 
 function clearPreviewUrls() {
@@ -736,6 +830,8 @@ function clearPreviewUrls() {
   }
   createdPreviewUrls.clear()
   previewImageUrls.value = []
+  previewAudioUrls.value = []
+  previewFileUrls.value = []
 }
 
 function onPreviewImageError(idx) {
@@ -857,9 +953,30 @@ async function loadStorageQuota() {
 function initPreviewEditor() {
   if (!previewEditorRef.value || !selectedNote.value) return
   if (selectedNote.value.type === 'LIST') return
-  const html = spansToHtml(selectedNote.value.body || '', selectedNote.value.spans || [])
+  const html = spansToHtml(selectedNote.value.body || '', selectedNote.value.spans || [], selectedNote.value.images || [])
   previewEditorRef.value.innerHTML = html || ''
+  resolveInlineImages()
   previewFormats.value = { bold: false, italic: false, strikethrough: false, monospace: false, link: false }
+}
+
+// The inline <img> placeholders rendered by spansToHtml carry only a data-fname;
+// resolve each to a blob URL from IndexedDB so the picture actually displays in
+// the editor. Tracked for revocation in clearPreviewUrls().
+function resolveInlineImages() {
+  if (!previewEditorRef.value) return
+  const imgs = previewEditorRef.value.querySelectorAll('img.inline-image')
+  imgs.forEach(async (el) => {
+    const fname = el.getAttribute('data-fname')
+    if (!fname) return
+    try {
+      const blob = await getAttachment(fname)
+      if (blob) {
+        const url = URL.createObjectURL(blob)
+        el.src = url
+        createdPreviewUrls.add(url)
+      }
+    } catch {}
+  })
 }
 
 function onPreviewEditorInput() {
@@ -896,12 +1013,18 @@ function flushPreviewSave() {
   // push a stale body up to WebDAV and silently clobber the Android copy (the
   // data-loss bug reported by the user).
   const note = selectedNote.value
+  // Compare formatting spans in a way that IGNORES inline-image spans. The web
+  // editor renders images positionally from body (\uFFFC) + note.images, never
+  // from span data, so image spans are not part of the editable content. If we
+  // compared raw span JSON, merely OPENING an Android note (whose spans carry
+  // image data the web drops on save) would look "changed" and bump the
+  // modifiedTimestamp — re-introducing the overwrite-remote data-loss bug.
   const contentChanged =
     draftTitle !== note.title ||
     draftBody !== note.body ||
     (note.type === 'LIST'
       ? JSON.stringify(draftItems) !== JSON.stringify(note.items)
-      : JSON.stringify(draftSpans) !== JSON.stringify(note.spans))
+      : normalizeSpansForCompare(draftSpans, draftBody) !== normalizeSpansForCompare(note.spans, note.body))
   if (!contentChanged) return
 
   note.title = draftTitle
@@ -1094,6 +1217,26 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
+// Drop inline-image spans (those covering a \uFFFC in the body) before comparing
+// span JSON, so opening/viewing an Android note never registers as an edit.
+function normalizeSpansForCompare(spans, body) {
+  const arr = (spans || [])
+    .filter(s => s && typeof s.start === 'number' && s.end > s.start)
+    .filter(s => body[s.start] !== '\uFFFC')
+    .map(s => ({
+      start: s.start,
+      end: s.end,
+      bold: !!s.bold,
+      italic: !!s.italic,
+      strikethrough: !!s.strikethrough,
+      monospace: !!s.monospace,
+      link: !!s.link,
+      linkData: s.linkData || null,
+    }))
+    .sort((a, b) => a.start - b.start || b.end - a.end)
+  return JSON.stringify(arr)
+}
+
 onMounted(() => {
   loadStorageQuota()
 })
@@ -1125,5 +1268,13 @@ onMounted(() => {
   content: '写点什么...';
   color: #9ca3af;
   pointer-events: none;
+}
+.preview-editor img.inline-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.5rem 0;
+  border-radius: 0.75rem;
+  object-fit: cover;
 }
 </style>

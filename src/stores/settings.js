@@ -173,9 +173,14 @@ export const useSettingsStore = defineStore('settings', () => {
       let blob
       try { blob = await getAttachment(fn) } catch { continue }
       if (!blob || blob.size === 0) continue
-      // Android's optimization: remote already has the same file (name + size),
-      // skip the re-upload instead of pushing every attachment every sync.
-      if (remoteSize !== undefined && remoteSize === blob.size) continue
+      // The web app never EDITs existing attachments — the WebDAV copy is the
+      // source of truth. So if the remote already has a file with this name,
+      // ALWAYS skip the upload: pushing our local copy would overwrite a good
+      // remote file with a (possibly stale/half-downloaded) local one and
+      // silently pollute the server. The only case we upload is when the remote
+      // has NO such file yet — i.e. a genuinely new attachment the web created
+      // (its name is unique, so it can't already exist on the server).
+      if (remoteSize !== undefined) continue
       const ok = await client.upload(`${dir}${fn}`, blob)
       if (ok) {
         uploaded++
@@ -365,7 +370,12 @@ export const useSettingsStore = defineStore('settings', () => {
         if (remoteText) {
           try {
             const remoteNote = jsonToNote(remoteText)
-            await notesStore.saveNote(remoteNote)
+            // Preserve the remote modifiedTimestamp. A freshly downloaded note must
+            // NOT be re-stamped "now", or the next sync's conflict rule (local newer
+            // -> overwrite remote) would treat it as locally-edited and push it back
+            // up — the "ghost upload" of notes you never touched. silent:true keeps
+            // this sync-internal write from re-triggering auto-sync.
+            await notesStore.saveNote(remoteNote, { preserveTimestamp: true, silent: true })
           } catch {}
         }
       }
