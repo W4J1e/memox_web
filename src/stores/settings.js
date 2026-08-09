@@ -153,6 +153,52 @@ export const useSettingsStore = defineStore('settings', () => {
     return 'files'
   }
 
+  function attachmentDirFromKey(key) {
+    if (key === 'audios') return 'memoX/attachments/audios/'
+    if (key === 'files') return 'memoX/attachments/files/'
+    return 'memoX/attachments/images/'
+  }
+
+  // Find a referenced attachment anywhere in the three remote indexes. Android may
+  // store a file under a different subdir than our local routing guess (e.g. an
+  // image whose name has no recognized extension ends up in files/), so we must
+  // not assume the expected dir — otherwise remoteSize stays undefined and the
+  // file is silently skipped and never downloaded.
+  function findRemoteAttachment(index, fileName) {
+    for (const key of ['images', 'audios', 'files']) {
+      if (index[key].has(fileName)) {
+        return { key, dir: attachmentDirFromKey(key), size: index[key].get(fileName) }
+      }
+    }
+    return null
+  }
+
+  async function probeSize(client, path) {
+    try {
+      // Cache-bust so we don't read a stale immutable entry left over from the
+      // corruption phase (EdgeOne Makers keeps no manual purge).
+      const resp = await client.request('HEAD', path + '?cb=' + Date.now())
+      if (resp.ok) {
+        const len = parseInt(resp.headers.get('content-length') || '0', 10)
+        if (len > 0) return len
+      }
+    } catch {}
+    return undefined
+  }
+
+  // A downloaded attachment must not be an HTML/XML error page (e.g. a 404 body
+  // the proxy returned instead of the file). Persisting that would lock a
+  // "broken" blob into the size-based skip check forever. Cheap 512-byte peek.
+  async function isErrorBody(blob) {
+    try {
+      const head = blob.slice(0, 512)
+      const text = (await head.text()).trim().toLowerCase()
+      return text.startsWith('<!doctype') || text.startsWith('<html') || text.startsWith('<?xml')
+    } catch {
+      return false
+    }
+  }
+
   async function uploadAttachments(client, notes, index = null) {
     const neededFileNames = new Set()
     for (const note of notes) {
@@ -220,23 +266,50 @@ export const useSettingsStore = defineStore('settings', () => {
 
     let downloaded = 0
     for (const fn of Array.from(neededFileNames)) {
-      const key = attachmentKey(fn)
-      const dir = getAttachmentDir(fn)
-      const remoteSize = index[key].get(fn)
-      // Skip if we already have it locally with matching size (Android parity):
-      // never re-download an attachment we already own.
+      // Resolve the file's real location. Search all three indexes (Android may
+      // store it under a different subdir than our local guess); if it's missing
+      // everywhere, probe the expected path (and the other two dirs) with a
+      // cache-busted HEAD so a file the listing somehow missed still downloads
+      // instead of being permanently skipped.
+      let located = findRemoteAttachment(index, fn)
+      let key, dir, remoteSize
+      if (located) {
+        key = located.key
+        dir = located.dir
+        remoteSize = located.size
+      } else {
+        key = attachmentKey(fn)
+        dir = getAttachmentDir(fn)
+        remoteSize = await probeSize(client, `${dir}${fn}`)
+        if (remoteSize === undefined) {
+          for (const d of ['memoX/attachments/images/', 'memoX/attachments/audios/', 'memoX/attachments/files/']) {
+            const s = await probeSize(client, `${d}${fn}`)
+            if (s !== undefined) {
+              dir = d
+              remoteSize = s
+              key = d.includes('/audios/') ? 'audios' : d.includes('/files/') ? 'files' : 'images'
+              break
+            }
+          }
+        }
+      }
+      if (remoteSize === undefined) continue
+
+      // Skip if we already own a blob of matching size — unless it's actually a
+      // stored error page that matched the size by accident.
       try {
         const existing = await getAttachment(fn)
-        if (existing && existing.size > 0 && (remoteSize === undefined || remoteSize === existing.size)) continue
+        if (existing && existing.size > 0 && existing.size === remoteSize) {
+          if (!(await isErrorBody(existing))) continue
+        }
       } catch {}
-      if (remoteSize === undefined) continue
+
       try {
         const blob = await client.downloadBlob(`${dir}${fn}`)
-        // Only persist a download that is actually complete. A truncated/partial
-        // body (size != remote) must never be stored, or the size-based skip check
-        // below would lock in a broken image and re-download it forever from the
-        // same bad cache entry.
-        if (blob && blob.size > 0 && (remoteSize === undefined || blob.size === remoteSize)) {
+        // Only persist a download that is actually complete AND not an error page.
+        // A truncated/error body must never be stored, or the size-based skip check
+        // would lock in a broken attachment and re-download it forever.
+        if (blob && blob.size > 0 && blob.size === remoteSize && !(await isErrorBody(blob))) {
           await putAttachment(fn, blob)
           downloaded++
         }

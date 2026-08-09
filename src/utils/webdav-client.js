@@ -11,6 +11,19 @@ function normalizeWebdavPath(path) {
   return p
 }
 
+// Inject a unique cache-bust segment right before the file leaf, e.g.
+//   memoX/attachments/images/x.jpg
+//     -> memoX/attachments/images/.cb/<token>/x.jpg
+// The token changes every call so the CDN (whose cache key is the request PATH,
+// not the query string) always treats the request as a fresh MISS. The proxy
+// strips the /.cb/<token>/ segment before forwarding to WebDAV.
+function injectCacheBust(path, token) {
+  const norm = String(path).replace(/^\/+/, '').replace(/\/+$/, '')
+  const sep = norm.lastIndexOf('/')
+  if (sep < 0) return '.cb/' + token + '/' + norm
+  return norm.slice(0, sep + 1) + '.cb/' + token + '/' + norm.slice(sep + 1)
+}
+
 export class WebDavClient {
   constructor(url, username, password, options = {}) {
     this.webdavUrl = url.replace(/\/+$/, '')
@@ -191,16 +204,20 @@ export class WebDavClient {
   // single request never exceeds the EdgeOne gateway timeout (which caused 504s
   // on big images proxied through the Cloud Function). Small files use one GET.
   //
-  // Cache-busting: every attachment request carries a UNIQUE ?cb= token. EdgeOne
-  // Makers exposes no manual purge, and a stale 206/partial body cached against
-  // the *bare* path is exactly what produced "top half renders, bottom half
-  // gray". A unique query per request makes the CDN treat each fetch as a MISS,
-  // so it always pulls fresh bytes from the origin. The proxy strips ?cb= before
-  // forwarding to WebDAV. After assembly we still verify the byte count against
-  // the HEAD Content-Length — a truncated body must never be persisted.
-  async downloadBlob(path, { chunkSize = 2 * 1024 * 1024 } = {}) {
-    const cb = 'cb=' + Date.now() + '_' + Math.random().toString(36).slice(2, 10)
-    const busted = path.includes('?') ? path + '&' + cb : path + '?' + cb
+  // Cache-busting (path fragment): EdgeOne's CDN builds its cache key from the
+  // REQUEST PATH, not the query string, so a ?cb= query can never bypass an
+  // already-cached (e.g. stale 206/partial) entry — it just keeps hitting the
+  // same edge object and reproduces "top half renders, bottom half gray". We
+  // instead inject a unique /.cb/<token>/ segment right before the file leaf.
+  // The path changes on every request, so the CDN treats each fetch as a fresh
+  // MISS and always pulls new bytes from origin. The proxy strips the segment
+  // before forwarding to WebDAV. This also retroactively defeats the immutable
+  // entries that were cached before the no-store fix existed. After assembly we
+  // still verify the byte count against the HEAD Content-Length — a truncated
+  // body must never be persisted.
+  async downloadBlob(path, { chunkSize = 4 * 1024 * 1024 } = {}) {
+    const token = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10)
+    const busted = injectCacheBust(path, token)
 
     const head = await this.request('HEAD', busted)
     const total = head.ok ? parseInt(head.headers.get('content-length') || '0', 10) : 0

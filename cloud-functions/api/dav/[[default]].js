@@ -84,12 +84,17 @@ app.use(async (req, res) => {
     // full request URL (incl. query string), regardless of mount point.
     const fullReqUrl = req.originalUrl || req.url
     const qIdx = fullReqUrl.indexOf('?')
-    const pathOnly = qIdx >= 0 ? fullReqUrl.slice(0, qIdx) : fullReqUrl
+    const pathOnlyRaw = qIdx >= 0 ? fullReqUrl.slice(0, qIdx) : fullReqUrl
+    // Strip the client's path-fragment cache-bust segment (/.cb/<token>/). The
+    // browser injects a unique /.cb/<token>/ right before the file leaf on every
+    // attachment GET so the edge CDN (whose cache key is the path, not the query)
+    // never serves a stale cached partial. WebDAV must receive the clean path or
+    // it 404s on the unknown segment. The regex removes every /.cb/<token>/ chunk
+    // anywhere in the path, leaving the real object path intact.
+    const pathOnly = pathOnlyRaw.replace(/\/\.cb\/[^/]+\/?/g, '')
     let queryStr = qIdx >= 0 ? fullReqUrl.slice(qIdx) : ''
-    // Strip the client's cache-bust token (?cb=) before forwarding to WebDAV.
-    // The browser appends a unique token on every attachment GET so the edge CDN
-    // never serves a stale cached partial (206) body; WebDAV must receive a clean
-    // path or it may 404 on the unknown query string.
+    // Legacy ?cb= query busting — kept for backward compatibility with older
+    // client builds that still append the token as a query string.
     if (queryStr) {
       try {
         const u = new URL('http://localhost' + queryStr)
@@ -156,9 +161,9 @@ app.use(async (req, res) => {
       // truncated stream) gets served to later range requests and corrupts reassembled
       // images (classic "top half renders, bottom half gray"). The client already skips
       // unchanged attachments by size, so caching here buys no real speed and only
-      // causes corruption. no-store keeps every byte fresh from the origin, and the
-      // client's per-request ?cb= token forces a CDN MISS even where no manual purge
-      // exists (EdgeOne Makers).
+    // causes corruption. no-store keeps every byte fresh from the origin, and the
+    // client's per-request /.cb/<token>/ path fragment forces a guaranteed CDN
+    // MISS even where no manual purge exists (EdgeOne Makers).
       res.setHeader('Cache-Control', 'no-store')
       res.setHeader('Accept-Ranges', 'bytes')
     }
