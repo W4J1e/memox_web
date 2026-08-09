@@ -85,7 +85,20 @@ app.use(async (req, res) => {
     const fullReqUrl = req.originalUrl || req.url
     const qIdx = fullReqUrl.indexOf('?')
     const pathOnly = qIdx >= 0 ? fullReqUrl.slice(0, qIdx) : fullReqUrl
-    const queryStr = qIdx >= 0 ? fullReqUrl.slice(qIdx) : ''
+    let queryStr = qIdx >= 0 ? fullReqUrl.slice(qIdx) : ''
+    // Strip the client's cache-bust token (?cb=) before forwarding to WebDAV.
+    // The browser appends a unique token on every attachment GET so the edge CDN
+    // never serves a stale cached partial (206) body; WebDAV must receive a clean
+    // path or it may 404 on the unknown query string.
+    if (queryStr) {
+      try {
+        const u = new URL('http://localhost' + queryStr)
+        if (u.searchParams.has('cb')) {
+          u.searchParams.delete('cb')
+          queryStr = u.search
+        }
+      } catch {}
+    }
     const webdavPath = pathOnly.replace(/^\/api\/dav\/?/, '')
     const targetBase = String(targetUrl).replace(/\/+$/, '')
     const fullUrl = webdavPath
@@ -138,12 +151,14 @@ app.use(async (req, res) => {
     // and never change, so cache them at the edge to avoid re-proxying on every
     // sync/view. This dramatically cuts Cloud Function invocations and latency,
     // and means a second view of the same image never hits the 504 risk again.
-    if (method === 'GET' && /\/attachments\//.test(webdavPath)) {
-      // Do NOT cache attachment responses. Edge caching of 206/partial bodies (or a
+    if ((method === 'GET' || method === 'HEAD') && /\/attachments\//.test(webdavPath)) {
+      // Never cache attachment responses. Edge caching of 206/partial bodies (or a
       // truncated stream) gets served to later range requests and corrupts reassembled
       // images (classic "top half renders, bottom half gray"). The client already skips
       // unchanged attachments by size, so caching here buys no real speed and only
-      // causes corruption. no-store keeps every byte fresh from the origin.
+      // causes corruption. no-store keeps every byte fresh from the origin, and the
+      // client's per-request ?cb= token forces a CDN MISS even where no manual purge
+      // exists (EdgeOne Makers).
       res.setHeader('Cache-Control', 'no-store')
       res.setHeader('Accept-Ranges', 'bytes')
     }

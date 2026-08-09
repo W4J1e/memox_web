@@ -190,11 +190,19 @@ export class WebDavClient {
   // Download a binary attachment. For large files we fetch in byte ranges so a
   // single request never exceeds the EdgeOne gateway timeout (which caused 504s
   // on big images proxied through the Cloud Function). Small files use one GET.
-  // After assembly we verify the byte count against the HEAD Content-Length and
-  // retry once (cache-busted) on mismatch — a truncated/partial body must never
-  // be persisted, or the size-based skip check would lock in a broken image.
-  async downloadBlob(path, { chunkSize = 2 * 1024 * 1024, retries = 1 } = {}) {
-    const head = await this.request('HEAD', path)
+  //
+  // Cache-busting: every attachment request carries a UNIQUE ?cb= token. EdgeOne
+  // Makers exposes no manual purge, and a stale 206/partial body cached against
+  // the *bare* path is exactly what produced "top half renders, bottom half
+  // gray". A unique query per request makes the CDN treat each fetch as a MISS,
+  // so it always pulls fresh bytes from the origin. The proxy strips ?cb= before
+  // forwarding to WebDAV. After assembly we still verify the byte count against
+  // the HEAD Content-Length — a truncated body must never be persisted.
+  async downloadBlob(path, { chunkSize = 2 * 1024 * 1024 } = {}) {
+    const cb = 'cb=' + Date.now() + '_' + Math.random().toString(36).slice(2, 10)
+    const busted = path.includes('?') ? path + '&' + cb : path + '?' + cb
+
+    const head = await this.request('HEAD', busted)
     const total = head.ok ? parseInt(head.headers.get('content-length') || '0', 10) : 0
 
     const fetchOnce = async (urlPath) => {
@@ -224,11 +232,14 @@ export class WebDavClient {
       return await this._fullBlob(urlPath)
     }
 
-    let blob = await fetchOnce(path)
-    if (blob && total > 0 && blob.size !== total && retries > 0) {
-      // Size mismatch => a partial/truncated body slipped through (often a stale
-      // cached 206). Bust the CDN cache and fetch the whole file once more.
-      blob = await fetchOnce(path + '?cb=' + Date.now())
+    // Try the cache-busted request first; if the WebDAV (or an un-deployed proxy)
+    // rejects the query string, fall back to the bare path. The size gate in
+    // syncAttachments still refuses to persist a truncated body either way.
+    let blob = await fetchOnce(busted)
+    if (!blob || blob.size === 0) blob = await fetchOnce(path)
+    if (blob && total > 0 && blob.size !== total) {
+      // Still truncated after cache-bust -> fetch the whole file (no ranges).
+      blob = (await this._fullBlob(busted)) || (await this._fullBlob(path))
     }
     return blob
   }

@@ -156,7 +156,9 @@ export const useSettingsStore = defineStore('settings', () => {
   async function uploadAttachments(client, notes, index = null) {
     const neededFileNames = new Set()
     for (const note of notes) {
-      const names = getAllImageFileNames(note)
+      // Cover images + files + audios (getAllAttachmentFileNames) so voice memos
+      // and non-image files sync too — getAllImageFileNames silently dropped them.
+      const names = getAllAttachmentFileNames(note)
       for (const n of names) neededFileNames.add(n)
     }
 
@@ -202,7 +204,9 @@ export const useSettingsStore = defineStore('settings', () => {
   async function syncAttachments(client, notes, index = null) {
     const neededFileNames = new Set()
     for (const note of notes) {
-      const names = getAllImageFileNames(note)
+      // Cover images + files + audios (getAllAttachmentFileNames) so voice memos
+      // and non-image files sync too — getAllImageFileNames silently dropped them.
+      const names = getAllAttachmentFileNames(note)
       for (const n of names) neededFileNames.add(n)
     }
 

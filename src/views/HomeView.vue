@@ -874,18 +874,41 @@ function onPreviewInput() {
 function flushPreviewSave() {
   if (!selectedNote.value) return
   clearTimeout(previewSaveTimer)
-  selectedNote.value.title = editingTitle.value
+
+  // Reconstruct the prospective content straight from the live editors, without
+  // mutating the note yet — so we can tell whether anything actually changed.
+  const draftTitle = editingTitle.value
+  let draftBody = selectedNote.value.body
+  let draftSpans = selectedNote.value.spans
+  let draftItems = selectedNote.value.items
   if (selectedNote.value.type !== 'LIST' && previewEditorRef.value) {
     const html = previewEditorRef.value.innerHTML
-    const plainText = getPlainTextFromHtml(html)
-    const newSpans = htmlToSpans(html)
-    selectedNote.value.body = plainText
-    selectedNote.value.spans = newSpans
+    draftBody = getPlainTextFromHtml(html)
+    draftSpans = htmlToSpans(html)
   }
   if (selectedNote.value.type === 'LIST') {
-    selectedNote.value.items = editingItems.value.map(i => ({ ...i }))
+    draftItems = editingItems.value.map(i => ({ ...i }))
   }
-  notesStore.saveNote(selectedNote.value)
+
+  // Scheme A: only persist + bump modifiedTimestamp when the content truly
+  // changed. Merely OPENING or BROWSING a note must NOT refresh its timestamp —
+  // otherwise the sync conflict rule ("local newer -> overwrite remote") would
+  // push a stale body up to WebDAV and silently clobber the Android copy (the
+  // data-loss bug reported by the user).
+  const note = selectedNote.value
+  const contentChanged =
+    draftTitle !== note.title ||
+    draftBody !== note.body ||
+    (note.type === 'LIST'
+      ? JSON.stringify(draftItems) !== JSON.stringify(note.items)
+      : JSON.stringify(draftSpans) !== JSON.stringify(note.spans))
+  if (!contentChanged) return
+
+  note.title = draftTitle
+  note.body = draftBody
+  note.spans = draftSpans
+  note.items = draftItems
+  notesStore.saveNote(note)
   settingsStore.scheduleAutoSync()
 }
 
