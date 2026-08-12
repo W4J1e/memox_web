@@ -1185,9 +1185,36 @@ function triggerImageUpload() {
   imageInputRef.value?.click()
 }
 
+// Count how many inline images already sit before the current caret. Used to
+// keep the note's positional image model intact: body \uFFFC[i] must always map
+// to note.images[i], so a newly inserted image is spliced into note.images at
+// the same offset its \uFFFC will occupy in the body.
+function countInlineImagesBeforeCaret(editor) {
+  if (!editor) return 0
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) {
+    return editor.querySelectorAll('img.inline-image').length
+  }
+  const range = sel.getRangeAt(0)
+  if (!editor.contains(range.commonAncestorContainer)) {
+    return editor.querySelectorAll('img.inline-image').length
+  }
+  const pre = document.createRange()
+  pre.setStart(editor, 0)
+  try {
+    pre.setEnd(range.startContainer, range.startOffset)
+  } catch {
+    return editor.querySelectorAll('img.inline-image').length
+  }
+  const holder = document.createElement('div')
+  holder.appendChild(pre.cloneContents())
+  return holder.querySelectorAll('img.inline-image').length
+}
+
 async function onImageFilesSelected(event) {
   const files = event.target.files
   if (!files || files.length === 0 || !selectedNote.value) return
+  const editor = previewEditorRef.value
   for (const file of files) {
     if (!file.type.startsWith('image/')) continue
     const fileName = `${Date.now()}_${file.name}`
@@ -1196,16 +1223,46 @@ async function onImageFilesSelected(event) {
     // Android's Converters.jsonToFiles requires localName / originalName / mimeType.
     // mimeType uses getString() (non-optional) — a missing field throws and the whole
     // note is silently dropped during Android sync. Always write all three fields.
-    selectedNote.value.images.push({
+    const imageEntry = {
       localName: fileName,
       originalName: file.name,
       mimeType: file.type || guessMimeType(fileName),
-    })
-    const url = URL.createObjectURL(file)
-    previewImageUrls.value.push(url)
-    createdPreviewUrls.add(url)
+    }
+    // Insert at the same index the new \uFFFC will occupy in the body.
+    const insertIndex = editor ? countInlineImagesBeforeCaret(editor) : selectedNote.value.images.length
+    selectedNote.value.images.splice(insertIndex, 0, imageEntry)
+
+    // Insert an INLINE <img> at the caret so the picture lands where the user is
+    // typing — not in the bottom gallery. A trailing <br> leaves a caret position
+    // AFTER the (non-editable) image, so it can be selected and deleted.
+    if (editor) {
+      const img = document.createElement('img')
+      img.className = 'inline-image'
+      img.setAttribute('data-fname', fileName)
+      img.setAttribute('contenteditable', 'false')
+      const url = URL.createObjectURL(file)
+      img.src = url
+      createdPreviewUrls.add(url)
+
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0 && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+        const range = sel.getRangeAt(0)
+        range.deleteContents()
+        range.insertNode(img)
+      } else {
+        editor.appendChild(img)
+      }
+      const br = document.createElement('br')
+      img.after(br)
+      const newRange = document.createRange()
+      newRange.setStartAfter(br)
+      newRange.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(newRange)
+      editor.focus()
+    }
+    onPreviewInput()
   }
-  onPreviewInput()
   if (imageInputRef.value) imageInputRef.value.value = ''
 }
 
