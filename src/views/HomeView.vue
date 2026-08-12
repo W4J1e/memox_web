@@ -408,8 +408,10 @@
                   class="preview-editor text-gray-700 dark:text-gray-300 leading-relaxed text-base outline-none min-h-[120px]"
                   contenteditable="true"
                   @input="onPreviewEditorInput"
+                  @keydown="onPreviewEditorKeydown"
                   @keyup="updatePreviewFormats"
                   @mouseup="updatePreviewFormats"
+                  @click="onPreviewEditorClick"
                   @focus="previewEditorFocused = true"
                   @blur="previewEditorFocused = false"
                 ></div>
@@ -426,12 +428,10 @@
                 <button @click="addPreviewItem" class="text-sm text-green-500 hover:text-green-600 py-1">+ 添加项</button>
               </div>
 
-              <!-- Images -->
-              <div v-if="previewImageUrls.length > 0" class="mt-6 grid grid-cols-2 gap-3">
-                <div v-for="(url, idx) in previewImageUrls" :key="idx" class="relative rounded-xl overflow-hidden">
-                  <img :src="url" class="w-full h-auto rounded-xl" loading="lazy" @error="onPreviewImageError(idx)" @click="openImage(url)" style="cursor: zoom-in" />
-                </div>
-              </div>
+              <!-- Images render inline inside the editor (body \uFFFC + note.images).
+                 There is intentionally NO bottom image gallery: every image lives in
+                 the body text. Legacy non-inline images are re-attached inline by
+                 initPreviewEditor and self-heal into \uFFFC on the next save. -->
 
               <!-- Audio attachments -->
               <div v-if="previewAudioUrls.length > 0" class="mt-4 space-y-2">
@@ -753,33 +753,9 @@ async function loadPreviewImages() {
   if (!selectedNote.value) return
   const note = selectedNote.value
 
-  // Inline images are rendered in-place by the editor (spansToHtml). The bottom
-  // gallery should show only the NON-inline images, so compute the set of file
-  // names that are rendered inline (the first k images, where k = number of
-  // \uFFFC markers in the body) and exclude them from the gallery.
-  const inlineCount = (note.body || '').split('\uFFFC').length - 1
-  const inlineNames = new Set()
-  for (let i = 0; i < inlineCount && i < (note.images || []).length; i++) {
-    const fn = getImageFileName(note.images[i])
-    if (fn) inlineNames.add(fn)
-  }
-
-  const urls = []
-  if (note.images) {
-    for (const img of note.images) {
-      const fn = getImageFileName(img)
-      if (!fn || inlineNames.has(fn)) continue
-      try {
-        const blob = await getAttachment(fn)
-        if (blob) {
-          const url = URL.createObjectURL(blob)
-          urls.push(url)
-          createdPreviewUrls.add(url)
-        }
-      } catch {}
-    }
-  }
-  previewImageUrls.value = urls
+  // Images are rendered inline by the editor (spansToHtml + appendOrphanImagesInline
+  // for leftovers). There is no bottom image gallery, so we don't build
+  // previewImageUrls here anymore — orphan images are attached inline instead.
 
   // Audio attachments: show an inline player.
   const audioUrls = []
@@ -955,8 +931,53 @@ function initPreviewEditor() {
   if (selectedNote.value.type === 'LIST') return
   const html = spansToHtml(selectedNote.value.body || '', selectedNote.value.spans || [], selectedNote.value.images || [])
   previewEditorRef.value.innerHTML = html || ''
+  // Any image in note.images NOT represented by a \uFFFC in the body is a leftover
+  // non-inline ("gallery") image. We render it inline at the end of the editor so
+  // there is no separate bottom gallery, and on the next save getPlainTextFromHtml
+  // serializes it as a \uFFFC — self-healing the data model.
+  appendOrphanImagesInline()
   resolveInlineImages()
+  // Ensure every inline image (from body + orphans) has a caret slot after it, so
+  // the cursor can be placed between/after pictures and they delete one at a time.
+  previewEditorRef.value.querySelectorAll('img.inline-image').forEach(ensureCaretSlotAfter)
   previewFormats.value = { bold: false, italic: false, strikethrough: false, monospace: false, link: false }
+}
+
+// Guarantee a caret slot (a <br>) immediately after every inline image, so the
+// caret can always sit after/ between pictures and a single Backspace/Delete
+// removes exactly that one image (handled in onPreviewEditorKeydown).
+// We skip adding a <br> only when the next sibling is already a <br> (no doubles)
+// or is a text node (don't break an existing text run with a blank line). When
+// the next sibling is another inline image we DO add the <br> — that gap is
+// exactly what lets the cursor sit between two adjacent pictures. <br> round-trips
+// to \n in the body and back to <br> on reload, so this is idempotent.
+function ensureCaretSlotAfter(img) {
+  const next = img.nextSibling
+  if (next && next.nodeName === 'BR') return
+  if (next && next.nodeType === Node.TEXT_NODE) return
+  if (!next || (next.nodeType === Node.ELEMENT_NODE && next.classList && next.classList.contains('inline-image'))) {
+    img.after(document.createElement('br'))
+  }
+}
+
+// Append inline <img> placeholders for note.images entries that have no
+// corresponding \uFFFC marker in the body. Keeps every image inside the body text.
+function appendOrphanImagesInline() {
+  const editor = previewEditorRef.value
+  const note = selectedNote.value
+  if (!editor || !note) return
+  const inlineCount = (note.body || '').split('\uFFFC').length - 1
+  const images = note.images || []
+  for (let i = inlineCount; i < images.length; i++) {
+    const fn = getImageFileName(images[i])
+    if (!fn) continue
+    const img = document.createElement('img')
+    img.className = 'inline-image'
+    img.setAttribute('data-fname', fn)
+    img.setAttribute('contenteditable', 'false')
+    editor.appendChild(img)
+    ensureCaretSlotAfter(img)
+  }
 }
 
 // The inline <img> placeholders rendered by spansToHtml carry only a data-fname;
@@ -980,6 +1001,115 @@ function resolveInlineImages() {
 }
 
 function onPreviewEditorInput() {
+  onPreviewInput()
+}
+
+// Click an inline image in the body to view it full-size (same behavior as the
+// bottom gallery). The <img> lives in the contenteditable DOM (set via
+// innerHTML), so it can't carry a Vue @click — handled by delegation here.
+function onPreviewEditorClick(e) {
+  const target = e.target
+  if (target && target.tagName === 'IMG' && target.classList.contains('inline-image')) {
+    const src = target.getAttribute('src')
+    if (src) openImage(src)
+  }
+}
+
+// Explicit single-key deletion of inline images. Relying on the browser's native
+// Backspace/Delete around a contenteditable=false image is unreliable: with a
+// trailing <br> it takes two presses (br first, then image), and when an image is
+// followed by other content native deletion is blocked entirely (only drag-select
+// worked). We intercept Backspace/Delete when the caret is adjacent to an inline
+// image (or a selection covers one) and remove the DOM node ourselves, keeping
+// note.images in sync so the body <-> images position mapping never desyncs.
+function onPreviewEditorKeydown(e) {
+  if (e.key !== 'Backspace' && e.key !== 'Delete') return
+  if (e.isComposing) return
+  const sel = window.getSelection()
+  const editor = previewEditorRef.value
+  if (!sel || sel.rangeCount === 0 || !editor) return
+
+  let imgs = []
+  if (sel.isCollapsed) {
+    const range = sel.getRangeAt(0)
+    const n = e.key === 'Backspace' ? inlineImageBeforeCaret(range) : inlineImageAfterCaret(range)
+    if (n) imgs.push(n)
+  } else {
+    const range = sel.getRangeAt(0)
+    editor.querySelectorAll('img.inline-image').forEach(img => {
+      if (range.intersectsNode(img)) imgs.push(img)
+    })
+  }
+  if (imgs.length === 0) return
+
+  e.preventDefault()
+  deleteInlineImages(imgs)
+}
+
+function isInlineImage(node) {
+  return !!node && node.nodeType === Node.ELEMENT_NODE && node.tagName === 'IMG' && node.classList.contains('inline-image')
+}
+
+// The inline image immediately BEFORE the collapsed caret (skipping a single <br>
+// so a caret sitting on the empty line after an image still deletes that image).
+function inlineImageBeforeCaret(range) {
+  let node = range.startContainer
+  let candidate = node.nodeType === Node.TEXT_NODE
+    ? (range.startOffset > 0 ? null : node.previousSibling)
+    : (node.childNodes[range.startOffset - 1] || null)
+  if (candidate && candidate.nodeName === 'BR') candidate = candidate.previousSibling
+  return isInlineImage(candidate) ? candidate : null
+}
+
+// The inline image immediately AFTER the collapsed caret (skipping a single <br>).
+function inlineImageAfterCaret(range) {
+  let node = range.startContainer
+  let candidate = node.nodeType === Node.TEXT_NODE
+    ? (range.startOffset < node.length ? null : node.nextSibling)
+    : (node.childNodes[range.startOffset] || null)
+  if (candidate && candidate.nodeName === 'BR') candidate = candidate.nextSibling
+  return isInlineImage(candidate) ? candidate : null
+}
+
+function deleteInlineImages(imgs) {
+  const editor = previewEditorRef.value
+  const sel = window.getSelection()
+  // Remember a caret anchor so we can restore the caret after removal.
+  const anchor = sel && sel.rangeCount
+    ? { c: sel.getRangeAt(0).startContainer, o: sel.getRangeAt(0).startOffset }
+    : null
+
+  const removedFnames = new Set()
+  for (const img of imgs) {
+    const fname = img.getAttribute('data-fname')
+    if (fname) removedFnames.add(fname)
+    const url = img.getAttribute('src')
+    if (url && createdPreviewUrls.has(url)) {
+      URL.revokeObjectURL(url)
+      createdPreviewUrls.delete(url)
+    }
+    const next = img.nextSibling
+    img.remove()
+    // Drop the caret-slot <br> that followed this image so no stray blank line
+    // is left behind in the body after save.
+    if (next && next.nodeName === 'BR') next.remove()
+  }
+  if (removedFnames.size && selectedNote.value && selectedNote.value.images) {
+    selectedNote.value.images = selectedNote.value.images.filter(img => {
+      const fn = getImageFileName(img)
+      return !fn || !removedFnames.has(fn)
+    })
+  }
+  if (anchor && editor.contains(anchor.c)) {
+    try {
+      const r = document.createRange()
+      const max = anchor.c.nodeType === Node.TEXT_NODE ? anchor.c.length : anchor.c.childNodes.length
+      r.setStart(anchor.c, Math.min(anchor.o, max))
+      r.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(r)
+    } catch {}
+  }
   onPreviewInput()
 }
 
@@ -1252,10 +1382,15 @@ async function onImageFilesSelected(event) {
       } else {
         editor.appendChild(img)
       }
-      const br = document.createElement('br')
-      img.after(br)
+      // Place a caret slot (a <br> line) right after the image so the cursor can
+      // sit after it and between consecutive pictures, and single-key deletion
+      // hits exactly this image. Put the caret after that slot so the user keeps
+      // typing on a fresh line. (When an editable text node already follows we
+      // don't force a blank line, to avoid breaking an in-progress text run.)
+      ensureCaretSlotAfter(img)
+      const slot = img.nextSibling || img
       const newRange = document.createRange()
-      newRange.setStartAfter(br)
+      newRange.setStartAfter(slot)
       newRange.collapse(true)
       sel.removeAllRanges()
       sel.addRange(newRange)
