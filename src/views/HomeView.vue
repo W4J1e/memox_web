@@ -753,9 +753,8 @@ async function loadPreviewImages() {
   if (!selectedNote.value) return
   const note = selectedNote.value
 
-  // Images are rendered inline by the editor (spansToHtml + appendOrphanImagesInline
-  // for leftovers). There is no bottom image gallery, so we don't build
-  // previewImageUrls here anymore — orphan images are attached inline instead.
+  // Images are rendered inline by the editor (spansToHtml). There is no bottom
+  // image gallery; inline images come purely from the body's \uFFFC markers.
 
   // Audio attachments: show an inline player.
   const audioUrls = []
@@ -931,11 +930,6 @@ function initPreviewEditor() {
   if (selectedNote.value.type === 'LIST') return
   const html = spansToHtml(selectedNote.value.body || '', selectedNote.value.spans || [], selectedNote.value.images || [])
   previewEditorRef.value.innerHTML = html || ''
-  // Any image in note.images NOT represented by a \uFFFC in the body is a leftover
-  // non-inline ("gallery") image. We render it inline at the end of the editor so
-  // there is no separate bottom gallery, and on the next save getPlainTextFromHtml
-  // serializes it as a \uFFFC — self-healing the data model.
-  appendOrphanImagesInline()
   resolveInlineImages()
   // Ensure every inline image (from body + orphans) has a caret slot after it, so
   // the cursor can be placed between/after pictures and they delete one at a time.
@@ -957,26 +951,6 @@ function ensureCaretSlotAfter(img) {
   if (next && next.nodeType === Node.TEXT_NODE) return
   if (!next || (next.nodeType === Node.ELEMENT_NODE && next.classList && next.classList.contains('inline-image'))) {
     img.after(document.createElement('br'))
-  }
-}
-
-// Append inline <img> placeholders for note.images entries that have no
-// corresponding \uFFFC marker in the body. Keeps every image inside the body text.
-function appendOrphanImagesInline() {
-  const editor = previewEditorRef.value
-  const note = selectedNote.value
-  if (!editor || !note) return
-  const inlineCount = (note.body || '').split('\uFFFC').length - 1
-  const images = note.images || []
-  for (let i = inlineCount; i < images.length; i++) {
-    const fn = getImageFileName(images[i])
-    if (!fn) continue
-    const img = document.createElement('img')
-    img.className = 'inline-image'
-    img.setAttribute('data-fname', fn)
-    img.setAttribute('contenteditable', 'false')
-    editor.appendChild(img)
-    ensureCaretSlotAfter(img)
   }
 }
 
@@ -1144,6 +1118,22 @@ function onPreviewInput() {
   previewSaveTimer = setTimeout(flushPreviewSave, 800)
 }
 
+// Serialize the editor for saving, but DROP the caret-slot <br> we insert directly
+// after every inline image. That <br> is only a cursor anchor (so the caret can sit
+// after/ between pictures) and must NOT be persisted — otherwise it serializes to a
+// "\n" in the body, making every opened note look "changed", bumping its
+// modifiedTimestamp, and letting the web overwrite newer Android edits during sync.
+function editorHtmlForSave() {
+  const editor = previewEditorRef.value
+  if (!editor) return ''
+  const clone = editor.cloneNode(true)
+  clone.querySelectorAll('img.inline-image').forEach(img => {
+    const next = img.nextSibling
+    if (next && next.nodeName === 'BR') next.remove()
+  })
+  return clone.innerHTML
+}
+
 function flushPreviewSave() {
   if (!selectedNote.value) return
   clearTimeout(previewSaveTimer)
@@ -1155,7 +1145,7 @@ function flushPreviewSave() {
   let draftSpans = selectedNote.value.spans
   let draftItems = selectedNote.value.items
   if (selectedNote.value.type !== 'LIST' && previewEditorRef.value) {
-    const html = previewEditorRef.value.innerHTML
+    const html = editorHtmlForSave()
     draftBody = getPlainTextFromHtml(html)
     draftSpans = htmlToSpans(html)
   }
