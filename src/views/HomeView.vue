@@ -943,14 +943,21 @@ function initPreviewEditor() {
 // We skip adding a <br> only when the next sibling is already a <br> (no doubles)
 // or is a text node (don't break an existing text run with a blank line). When
 // the next sibling is another inline image we DO add the <br> — that gap is
-// exactly what lets the cursor sit between two adjacent pictures. <br> round-trips
-// to \n in the body and back to <br> on reload, so this is idempotent.
+// exactly what lets the cursor sit between two adjacent pictures. The <br> we add
+// here is ONLY a caret anchor (marked with class "caret-anchor"); it must NOT be
+// confused with a real newline. A real newline from the body is rendered by
+// spansToHtml as a <br> WITHOUT that class, and editorHtmlForSave() keeps those.
+// If we stripped every <br> after an image we would also drop the user's real
+// newlines (e.g. "picture<newline>text"), making the note look "changed" on open,
+// bumping its modifiedTimestamp, and re-uploading it over the newer Android copy.
 function ensureCaretSlotAfter(img) {
   const next = img.nextSibling
-  if (next && next.nodeName === 'BR') return
   if (next && next.nodeType === Node.TEXT_NODE) return
+  if (next && next.nodeName === 'BR') return
   if (!next || (next.nodeType === Node.ELEMENT_NODE && next.classList && next.classList.contains('inline-image'))) {
-    img.after(document.createElement('br'))
+    const br = document.createElement('br')
+    br.className = 'caret-anchor'
+    img.after(br)
   }
 }
 
@@ -1119,18 +1126,16 @@ function onPreviewInput() {
 }
 
 // Serialize the editor for saving, but DROP the caret-slot <br> we insert directly
-// after every inline image. That <br> is only a cursor anchor (so the caret can sit
-// after/ between pictures) and must NOT be persisted — otherwise it serializes to a
-// "\n" in the body, making every opened note look "changed", bumping its
+// after every inline image. That <br> is only a cursor anchor (class "caret-anchor",
+// added by ensureCaretSlotAfter) and must NOT be persisted — otherwise it serializes
+// to a "\n" in the body, making every opened note look "changed", bumping its
 // modifiedTimestamp, and letting the web overwrite newer Android edits during sync.
+// Real newlines from the body are rendered as <br> WITHOUT that class and are kept.
 function editorHtmlForSave() {
   const editor = previewEditorRef.value
   if (!editor) return ''
   const clone = editor.cloneNode(true)
-  clone.querySelectorAll('img.inline-image').forEach(img => {
-    const next = img.nextSibling
-    if (next && next.nodeName === 'BR') next.remove()
-  })
+  clone.querySelectorAll('br.caret-anchor').forEach(br => br.remove())
   return clone.innerHTML
 }
 
