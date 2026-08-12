@@ -1050,25 +1050,51 @@ function isInlineImage(node) {
   return !!node && node.nodeType === Node.ELEMENT_NODE && node.tagName === 'IMG' && node.classList.contains('inline-image')
 }
 
-// The inline image immediately BEFORE the collapsed caret (skipping a single <br>
-// so a caret sitting on the empty line after an image still deletes that image).
+// The inline image immediately BEFORE the collapsed caret (Backspace target).
+// We accept the image only when it is the node directly before the caret, OR the
+// node directly before a SINGLE <br> (the caret slot we add after every image).
+// With TWO or more blank lines below the picture, Backspace must NOT tunnel up to
+// the picture — it should only remove a blank line, like normal text. So we never
+// cross more than one <br>.
 function inlineImageBeforeCaret(range) {
-  let node = range.startContainer
-  let candidate = node.nodeType === Node.TEXT_NODE
-    ? (range.startOffset > 0 ? null : node.previousSibling)
-    : (node.childNodes[range.startOffset - 1] || null)
-  if (candidate && candidate.nodeName === 'BR') candidate = candidate.previousSibling
-  return isInlineImage(candidate) ? candidate : null
+  const node = range.startContainer
+  const parent = node.nodeType === Node.TEXT_NODE ? node.parentNode : node
+  if (!parent) return null
+  const children = parent.childNodes
+  const pos = node.nodeType === Node.TEXT_NODE
+    ? (range.startOffset > 0 ? -1 : Array.prototype.indexOf.call(children, node))
+    : range.startOffset
+  if (pos < 0) return null
+  const i = pos - 1
+  if (i < 0) return null
+  const cand = children[i]
+  if (isInlineImage(cand)) return cand
+  if (cand && cand.nodeName === 'BR' && i - 1 >= 0 && isInlineImage(children[i - 1])) {
+    return children[i - 1]
+  }
+  return null
 }
 
-// The inline image immediately AFTER the collapsed caret (skipping a single <br>).
+// The inline image immediately AFTER the collapsed caret (Delete target). Mirror
+// of inlineImageBeforeCaret: accept the image only when it is directly after the
+// caret or directly after a single <br>, never tunneling across extra blank lines.
 function inlineImageAfterCaret(range) {
-  let node = range.startContainer
-  let candidate = node.nodeType === Node.TEXT_NODE
-    ? (range.startOffset < node.length ? null : node.nextSibling)
-    : (node.childNodes[range.startOffset] || null)
-  if (candidate && candidate.nodeName === 'BR') candidate = candidate.nextSibling
-  return isInlineImage(candidate) ? candidate : null
+  const node = range.startContainer
+  const parent = node.nodeType === Node.TEXT_NODE ? node.parentNode : node
+  if (!parent) return null
+  const children = parent.childNodes
+  const pos = node.nodeType === Node.TEXT_NODE
+    ? (range.startOffset < node.length ? -1 : Array.prototype.indexOf.call(children, node))
+    : range.startOffset
+  if (pos < 0) return null
+  const i = pos
+  if (i >= children.length) return null
+  const cand = children[i]
+  if (isInlineImage(cand)) return cand
+  if (cand && cand.nodeName === 'BR' && i + 1 < children.length && isInlineImage(children[i + 1])) {
+    return children[i + 1]
+  }
+  return null
 }
 
 function deleteInlineImages(imgs) {
