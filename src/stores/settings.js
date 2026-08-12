@@ -336,6 +336,34 @@ export const useSettingsStore = defineStore('settings', () => {
     return true
   }
 
+  // Normalize a note body for *semantic* comparison across clients. Web and
+  // Android serialize the same note with different whitespace / span noise, and
+  // some buggy intermediate builds left stray <br> anchors on WebDAV copies.
+  // Collapsing that noise lets two notes that read identically be treated as
+  // identical — otherwise the sync conflict rule re-uploads them every run.
+  function normalizeBodyText(s) {
+    if (!s) return ''
+    return String(s)
+      .replace(/ /g, ' ')                  // nbsp -> space
+      .replace(/\uFFFC/g, '\u0001')            // unify the image placeholder
+      .replace(/\s*\u0001\s*/g, '\u0001')     // drop whitespace hugging a placeholder
+      .replace(/\s+/g, ' ')                    // collapse runs of whitespace
+      .trim()
+  }
+
+  // True when two notes carry the same actual content. Ignores the whitespace /
+  // placeholder noise that triggers phantom "changed" detections, so an
+  // unchanged note (or one merely polluted with stray <br>s on WebDAV) is never
+  // treated as an edit that must be pushed up.
+  function notesContentEqual(a, b) {
+    if (!a || !b) return false
+    if ((a.title || '') !== (b.title || '')) return false
+    if (a.type === 'LIST') {
+      return JSON.stringify(a.items || []) === JSON.stringify(b.items || [])
+    }
+    return normalizeBodyText(a.body) === normalizeBodyText(b.body)
+  }
+
   async function sync() {
     const client = getClient()
     if (!client) throw new Error('WebDAV 未配置')
@@ -418,6 +446,14 @@ export const useSettingsStore = defineStore('settings', () => {
         if (!remoteText) continue
         let remoteNote
         try { remoteNote = jsonToNote(remoteText) } catch { continue }
+
+        // Semantic reconciliation: if the two notes carry the same actual content
+        // (ignoring whitespace / image-placeholder noise and the stray <br> anchors
+        // some buggy builds left on WebDAV), treat them as identical. This stops
+        // the "ghost upload" storm where unchanged notes get re-pushed every sync
+        // and clobber the Android copy.
+        if (notesContentEqual(localNote, remoteNote)) continue
+
         const remoteTs = remoteNote.modifiedTimestamp || 0
         const localTs = localNote.modifiedTimestamp || 0
         if (localTs > remoteTs) {
