@@ -399,12 +399,7 @@ export const useSettingsStore = defineStore('settings', () => {
       for (const file of noteFiles) {
         const noteId = extractNoteId(file.name)
         if (!noteId || mergedTombstones.includes(noteId)) continue
-        let lastModMs = 0
-        if (file.lastModified) {
-          const t = Date.parse(file.lastModified)
-          if (!isNaN(t)) lastModMs = t
-        }
-        remoteNoteMeta.set(noteId, { fileName: file.name, size: file.size, lastModMs })
+        remoteNoteMeta.set(noteId, { fileName: file.name, size: file.size })
       }
 
       for (const [id, meta] of remoteNoteMeta) {
@@ -413,17 +408,7 @@ export const useSettingsStore = defineStore('settings', () => {
           toDownload.push({ id, fileName: meta.fileName })
           continue
         }
-        const localTsMs = localNote.modifiedTimestamp || 0
-        // Cheap pre-check #1: PROPFIND already returned the remote file's
-        // last-modified (no body download). If it matches the local note's logical
-        // edit time at second granularity the note is unchanged — skip the proxy
-        // round-trip entirely. WebDAV mtime and our ms timestamp differ only by
-        // upload latency (well under a second for an unchanged note); a real edit
-        // rewrites the file and shifts mtime, so it falls through to the
-        // authoritative download+compare below. If lastModified is unavailable the
-        // check is simply disabled (lastModMs stays 0) and we fall through.
-        if (meta.lastModMs && Math.floor(localTsMs / 1000) === Math.floor(meta.lastModMs / 1000)) continue
-        // Cheap pre-check #2: PROPFIND already gave us the remote byte size. If the
+        // Cheap pre-check: PROPFIND already gave us the remote byte size. If the
         // serialized local note is byte-identical to what's on the server, there is
         // nothing to do — skip the download entirely (no proxy round-trip).
         const expectedSize = new TextEncoder().encode(noteToJson(localNote)).length

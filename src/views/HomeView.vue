@@ -931,34 +931,7 @@ function initPreviewEditor() {
   const html = spansToHtml(selectedNote.value.body || '', selectedNote.value.spans || [], selectedNote.value.images || [])
   previewEditorRef.value.innerHTML = html || ''
   resolveInlineImages()
-  // Ensure every inline image (from body + orphans) has a caret slot after it, so
-  // the cursor can be placed between/after pictures and they delete one at a time.
-  previewEditorRef.value.querySelectorAll('img.inline-image').forEach(ensureCaretSlotAfter)
   previewFormats.value = { bold: false, italic: false, strikethrough: false, monospace: false, link: false }
-}
-
-// Guarantee a caret slot (a <br>) immediately after every inline image, so the
-// caret can always sit after/ between pictures and a single Backspace/Delete
-// removes exactly that one image (handled in onPreviewEditorKeydown).
-// We skip adding a <br> only when the next sibling is already a <br> (no doubles)
-// or is a text node (don't break an existing text run with a blank line). When
-// the next sibling is another inline image we DO add the <br> — that gap is
-// exactly what lets the cursor sit between two adjacent pictures. The <br> we add
-// here is ONLY a caret anchor (marked with class "caret-anchor"); it must NOT be
-// confused with a real newline. A real newline from the body is rendered by
-// spansToHtml as a <br> WITHOUT that class, and editorHtmlForSave() keeps those.
-// If we stripped every <br> after an image we would also drop the user's real
-// newlines (e.g. "picture<newline>text"), making the note look "changed" on open,
-// bumping its modifiedTimestamp, and re-uploading it over the newer Android copy.
-function ensureCaretSlotAfter(img) {
-  const next = img.nextSibling
-  if (next && next.nodeType === Node.TEXT_NODE) return
-  if (next && next.nodeName === 'BR') return
-  if (!next || (next.nodeType === Node.ELEMENT_NODE && next.classList && next.classList.contains('inline-image'))) {
-    const br = document.createElement('br')
-    br.className = 'caret-anchor'
-    img.after(br)
-  }
 }
 
 // The inline <img> placeholders rendered by spansToHtml carry only a data-fname;
@@ -1095,11 +1068,7 @@ function deleteInlineImages(imgs) {
       URL.revokeObjectURL(url)
       createdPreviewUrls.delete(url)
     }
-    const next = img.nextSibling
     img.remove()
-    // Drop the caret-slot <br> that followed this image so no stray blank line
-    // is left behind in the body after save.
-    if (next && next.nodeName === 'BR') next.remove()
   }
   if (removedFnames.size && selectedNote.value && selectedNote.value.images) {
     selectedNote.value.images = selectedNote.value.images.filter(img => {
@@ -1125,20 +1094,6 @@ function onPreviewInput() {
   previewSaveTimer = setTimeout(flushPreviewSave, 800)
 }
 
-// Serialize the editor for saving, but DROP the caret-slot <br> we insert directly
-// after every inline image. That <br> is only a cursor anchor (class "caret-anchor",
-// added by ensureCaretSlotAfter) and must NOT be persisted — otherwise it serializes
-// to a "\n" in the body, making every opened note look "changed", bumping its
-// modifiedTimestamp, and letting the web overwrite newer Android edits during sync.
-// Real newlines from the body are rendered as <br> WITHOUT that class and are kept.
-function editorHtmlForSave() {
-  const editor = previewEditorRef.value
-  if (!editor) return ''
-  const clone = editor.cloneNode(true)
-  clone.querySelectorAll('br.caret-anchor').forEach(br => br.remove())
-  return clone.innerHTML
-}
-
 function flushPreviewSave() {
   if (!selectedNote.value) return
   clearTimeout(previewSaveTimer)
@@ -1150,7 +1105,7 @@ function flushPreviewSave() {
   let draftSpans = selectedNote.value.spans
   let draftItems = selectedNote.value.items
   if (selectedNote.value.type !== 'LIST' && previewEditorRef.value) {
-    const html = editorHtmlForSave()
+    const html = previewEditorRef.value.innerHTML
     draftBody = getPlainTextFromHtml(html)
     draftSpans = htmlToSpans(html)
   }
@@ -1403,15 +1358,13 @@ async function onImageFilesSelected(event) {
       } else {
         editor.appendChild(img)
       }
-      // Place a caret slot (a <br> line) right after the image so the cursor can
-      // sit after it and between consecutive pictures, and single-key deletion
-      // hits exactly this image. Put the caret after that slot so the user keeps
-      // typing on a fresh line. (When an editable text node already follows we
-      // don't force a blank line, to avoid breaking an in-progress text run.)
-      ensureCaretSlotAfter(img)
-      const slot = img.nextSibling || img
+      // Place the caret right after the (inline-block, non-editable) image. No
+      // trailing <br> anchor — an inline-block image keeps a valid caret position
+      // after it natively, so we never pollute the body with a blank line (which
+      // would make the note look "changed" on save and re-upload it over the newer
+      // Android copy during sync).
       const newRange = document.createRange()
-      newRange.setStartAfter(slot)
+      newRange.setStartAfter(img)
       newRange.collapse(true)
       sel.removeAllRanges()
       sel.addRange(newRange)
@@ -1483,11 +1436,12 @@ onMounted(() => {
   pointer-events: none;
 }
 .preview-editor img.inline-image {
-  display: block;
+  display: inline-block;
   max-width: 100%;
   height: auto;
   margin: 0.5rem 0;
   border-radius: 0.75rem;
   object-fit: cover;
+  vertical-align: top;
 }
 </style>
