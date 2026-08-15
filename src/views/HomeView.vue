@@ -82,36 +82,51 @@
           @click="selectFolder('DELETED')"
         />
 
-        <!-- Labels section -->
-        <div v-if="!sidebarCollapsed && (notesStore.allLabels.length || hiddenLabelsToShow.length)" class="pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
+        <!-- User folders (Android v1.2.4) — ABOVE labels -->
+        <div v-if="!sidebarCollapsed" class="pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
+          <div class="flex items-center justify-between px-3 mb-2">
+            <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">文件夹</span>
+            <button @click="promptNewFolder(false)" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="新建文件夹">
+              <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+            </button>
+          </div>
+          <!-- Virtual "uncategorized" pseudo-folder -->
+          <FolderItem
+            label="未归类"
+            :count="getFolderCount('')"
+            :active="notesStore.currentUserFolder === ''"
+            :can-edit="false"
+            @click="selectUserFolder('')"
+          />
+          <FolderItem
+            v-for="f in allFoldersSorted"
+            :key="f.name"
+            :label="f.name"
+            :count="getFolderCount(f.name)"
+            :active="notesStore.currentUserFolder === f.name"
+            :hidden="f.hidden"
+            @click="selectUserFolder(f.name)"
+            @contextmenu="onFolderContextMenu"
+          />
+        </div>
+
+        <!-- Labels section (below folders) — no hide/show, only create/delete/rename via settings -->
+        <div v-if="!sidebarCollapsed && (allAvailableLabels.length)" class="pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
           <div class="flex items-center justify-between px-3 mb-2">
             <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">标签</span>
+            <button @click="promptNewLabelSidebar" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="新建标签">
+              <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+            </button>
           </div>
           <LabelItem
-            v-for="label in notesStore.allLabels"
+            v-for="label in allAvailableLabels"
             :key="label"
             :label="label"
             :count="getLabelCount(label)"
             :active="notesStore.currentLabel === label"
-            :hidden="false"
             @select="selectLabel"
-            @toggle-visibility="toggleLabelVisibility"
+            @contextmenu="onLabelContextMenu"
           />
-          <template v-if="hiddenLabelsToShow.length">
-            <div class="px-3 py-1 mt-1">
-              <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider">已隐藏</span>
-            </div>
-            <LabelItem
-              v-for="label in hiddenLabelsToShow"
-              :key="'h_' + label"
-              :label="label"
-              :count="getLabelCount(label)"
-              :active="notesStore.currentLabel === label"
-              :hidden="true"
-              @select="selectLabel"
-              @toggle-visibility="toggleLabelVisibility"
-            />
-          </template>
         </div>
       </div>
 
@@ -177,31 +192,57 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">{{ currentViewTitle }}</h2>
-          <DynamicIsland />
-          <div class="ml-auto flex items-center gap-1">
+          <template v-if="selectionMode">
             <button
-              @click="toggleSortOrder"
+              @click="exitSelection"
               class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="排序"
+              title="退出多选"
             >
               <svg class="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <button
-              @click="viewMode = viewMode === 'list' ? 'grid' : 'list'"
-              class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="切换视图"
-            >
-              <svg v-if="viewMode === 'list'" class="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-              </svg>
-              <svg v-else class="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-              </svg>
-            </button>
-          </div>
+            <h2 class="text-base font-bold text-gray-900 dark:text-gray-100">已选 {{ selectedIds.size }} 项</h2>
+            <div class="ml-auto flex items-center gap-1">
+              <button
+                @click="selectAllInView"
+                class="px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-600 dark:text-gray-400"
+                title="全选"
+              >全选</button>
+              <button
+                @click="exitSelection"
+                class="px-2 py-1 text-xs rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-600 dark:text-gray-400"
+                title="取消"
+              >取消</button>
+            </div>
+          </template>
+          <template v-else>
+            <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">{{ currentViewTitle }}</h2>
+            <DynamicIsland />
+            <div class="ml-auto flex items-center gap-1">
+              <button
+                @click="toggleSortOrder"
+                class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="排序"
+              >
+                <svg class="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                </svg>
+              </button>
+              <button
+                @click="viewMode = viewMode === 'list' ? 'grid' : 'list'"
+                class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="切换视图"
+              >
+                <svg v-if="viewMode === 'list'" class="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+                <svg v-else class="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                </svg>
+              </button>
+            </div>
+          </template>
         </div>
         <!-- Search bar -->
         <div class="relative">
@@ -270,11 +311,20 @@
               :key="note.id"
               class="px-3 py-3 cursor-pointer transition-colors border-l-2 flex gap-3"
               :class="[
-                selectedNote?.id === note.id
-                  ? 'bg-green-50 dark:bg-green-900/20 border-l-green-500'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border-l-transparent'
+                selectedIds.has(note.id)
+                  ? 'bg-green-100 dark:bg-green-900/40 border-l-green-500'
+                  : selectedNote?.id === note.id
+                    ? 'bg-green-50 dark:bg-green-900/20 border-l-green-500'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border-l-transparent'
               ]"
-              @click="selectNote(note)"
+              @click="onNoteCardClick(note)"
+              @mousedown="startLongPress(note)"
+              @touchstart="startLongPress(note)"
+              @mouseup="cancelLongPress"
+              @mouseleave="cancelLongPress"
+              @touchend="cancelLongPress"
+              @touchmove="cancelLongPress"
+              @contextmenu.prevent="onNoteContextMenu($event, note)"
             >
               <div class="flex-1 min-w-0 flex flex-col">
                 <div class="flex items-center gap-1 mb-1">
@@ -316,9 +366,19 @@
               :key="note.id"
               :note="note"
               :thumbnail-url="getListThumbnail(note.id)"
-              :class="selectedNote?.id === note.id ? 'ring-2 ring-green-500' : ''"
-              @click="selectNote(note)"
+              :class="[
+                selectedIds.has(note.id) ? 'ring-2 ring-green-600' : '',
+                selectedNote?.id === note.id && !selectedIds.has(note.id) ? 'ring-2 ring-green-500' : ''
+              ]"
+              @click="onNoteCardClick(note)"
+              @mousedown="startLongPress(note)"
+              @touchstart="startLongPress(note)"
+              @mouseup="cancelLongPress"
+              @mouseleave="cancelLongPress"
+              @touchend="cancelLongPress"
+              @touchmove="cancelLongPress"
               @img-error="onListImgError(note.id)"
+              @contextmenu="onNoteContextMenu"
             />
           </div>
         </template>
@@ -396,6 +456,70 @@
                 class="w-full text-2xl font-bold bg-transparent border-0 outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 mb-2"
                 @input="onPreviewInput"
               />
+              <!-- Folder + Labels on one row: [📁 folder ▾] [🏷️] chips [+ tag] -->
+              <div v-if="selectedNote" class="relative flex flex-wrap items-center gap-2 mb-2">
+                <!-- Folder picker -->
+                <button
+                  @click="showFolderMenu = !showFolderMenu"
+                  class="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                  :title="selectedNote.folderId ? '移动到其他文件夹' : '分配到文件夹'"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                  <span>{{ selectedNote.folderId || '未分类' }}</span>
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                <div v-if="showFolderMenu" class="fixed inset-0 z-10" @click="showFolderMenu = false"></div>
+                <div v-if="showFolderMenu" class="absolute left-0 top-full z-20 mt-1 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 max-h-64 overflow-y-auto">
+                  <button @click="assignCurrentFolder('')" class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" :class="!selectedNote.folderId ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-200'">未分类</button>
+                  <button
+                    v-for="f in settingsStore.folders"
+                    :key="f.name"
+                    @click="assignCurrentFolder(f.name)"
+                    class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-between gap-2"
+                    :class="selectedNote.folderId === f.name ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-200'"
+                  >
+                    <span class="truncate">{{ f.name }}</span>
+                    <svg v-if="selectedNote.folderId === f.name" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  </button>
+                  <div class="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                  <button @click="promptNewFolder(true)" class="w-full text-left px-3 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">+ 新建文件夹</button>
+                </div>
+
+                <!-- Separator -->
+                <span class="text-gray-300 dark:text-gray-600">|</span>
+
+                <!-- Label chips -->
+                <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5a1.99 1.99 0 011.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.99 1.99 0 013 12V7a4 4 0 014-4z" /></svg>
+                <span
+                  v-for="lb in (selectedNote.labels || [])"
+                  :key="lb"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                >
+                  <span class="truncate max-w-[8rem]">{{ lb }}</span>
+                  <button @click="removeNoteLabel(lb)" class="hover:text-red-500 leading-none" title="移除标签">×</button>
+                </span>
+                <button
+                  @click="showLabelMenu = !showLabelMenu"
+                  class="px-2 py-0.5 rounded-full text-xs border border-dashed border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:text-green-600 hover:border-green-500 transition-colors"
+                  title="添加标签"
+                >+ 标签</button>
+                <div v-if="showLabelMenu" class="fixed inset-0 z-10" @click="showLabelMenu = false"></div>
+                <div v-if="showLabelMenu" class="absolute left-0 top-full z-20 mt-1 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 max-h-64 overflow-y-auto">
+                  <div v-if="notesStore.allLabels.length === 0" class="px-3 py-2 text-xs text-gray-400">暂无标签，点击下方新建</div>
+                  <button
+                    v-for="lb in notesStore.allLabels"
+                    :key="lb"
+                    @click="toggleNoteLabel(lb)"
+                    class="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-between gap-2"
+                    :class="(selectedNote.labels || []).includes(lb) ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-200'"
+                  >
+                    <span class="truncate">{{ lb }}</span>
+                    <svg v-if="(selectedNote.labels || []).includes(lb)" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  </button>
+                  <div class="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                  <button @click="promptNewLabel" class="w-full text-left px-3 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">+ 新建标签</button>
+                </div>
+              </div>
               <div class="flex items-center gap-4 text-xs text-gray-400 mb-4">
                 <span>{{ formatDate(selectedNote.timestamp) }}</span>
                 <span>{{ formatDate(selectedNote.modifiedTimestamp) }}</span>
@@ -412,6 +536,8 @@
                   @keyup="updatePreviewFormats"
                   @mouseup="updatePreviewFormats"
                   @click="onPreviewEditorClick"
+                  @contextmenu="onPreviewEditorContextMenu"
+                  @paste="onPreviewEditorPaste"
                   @focus="previewEditorFocused = true"
                   @blur="previewEditorFocused = false"
                 ></div>
@@ -529,19 +655,26 @@
       </div>
     </div>
   </div>
+
+  <!-- Global right-click context menu (notes / folders / labels) -->
+  <ContextMenu :current-folder-id="selectedNote?.folderId || ''" />
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onUnmounted, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted, onMounted, reactive } from 'vue'
 import { useNotesStore } from '../stores/notes'
 import { useSettingsStore } from '../stores/settings'
 import { useLockStore } from '../stores/lock'
 import NoteCard from '../components/NoteCard.vue'
 import NavItem from '../components/NavItem.vue'
 import LabelItem from '../components/LabelItem.vue'
+import FolderItem from '../components/FolderItem.vue'
+import ContextMenu from '../components/ContextMenu.vue'
+import { useContextMenu } from '../composables/contextMenu'
+import { useClipboard } from '../composables/clipboard'
 import DynamicIsland from '../components/DynamicIsland.vue'
 import { formatDate, getNotePreview, sanitizeBody, getImageFileName, createEmptyListItem, guessMimeType } from '../utils/note-parser'
-import { getAttachment, putAttachment } from '../utils/storage'
+import { getAttachment, putAttachment, putSetting } from '../utils/storage'
 import { spansToHtml, htmlToSpans, getPlainTextFromHtml } from '../utils/rich-text'
 
 const notesStore = useNotesStore()
@@ -551,6 +684,8 @@ const lockStore = useLockStore()
 const sidebarCollapsed = ref(false)
 const sidebarOpen = ref(false)
 const selectedNote = ref(null)
+const showFolderMenu = ref(false)
+const showLabelMenu = ref(false)
 
 const isMobile = ref(window.innerWidth < 768)
 
@@ -606,6 +741,7 @@ const storagePercent = computed(() => {
 })
 
 const currentViewTitle = computed(() => {
+  if (notesStore.currentUserFolder !== null) return `文件夹: ${notesStore.currentUserFolder || '未分类'}`
   if (notesStore.currentFolder === 'DELETED') return '回收站'
   if (notesStore.currentFolder === 'ARCHIVED') return '归档'
   if (notesStore.searchQuery) return '搜索结果'
@@ -637,6 +773,7 @@ function selectNote(note) {
     lockStore.lockNote(prevId)
   }
   selectedNote.value = note
+  showLabelMenu.value = false
   editingTitle.value = note.title || ''
   editingItems.value = note.items ? note.items.map(i => ({ ...i })) : []
   clearPreviewUrls()
@@ -646,6 +783,156 @@ function selectNote(note) {
   nextTick(() => {
     initPreviewEditor()
   })
+}
+
+const { openMenu } = useContextMenu()
+const { setClipboard, getClipboard, hasData: clipboardHasData, clear: clearClipboard } = useClipboard()
+
+// ---- Long-press multi-select (list & grid) ----
+// A long press (450ms) on a note card enters selection mode and selects that note.
+// In selection mode a tap toggles the note; right-click operates on the whole set.
+const selectionMode = ref(false)
+const selectedIds = reactive(new Set())
+let longPressTimer = null
+// Set true once a long-press actually fires, so the synthesized click on release
+// doesn't immediately toggle (de-select) the very note we just selected.
+let longPressed = false
+
+function startLongPress(note) {
+  cancelLongPress()
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null
+    longPressed = true
+    selectionMode.value = true
+    selectedIds.add(note.id)
+  }, 450)
+}
+function cancelLongPress() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
+function onNoteCardClick(note) {
+  if (longPressed) { longPressed = false; return }
+  if (selectionMode.value) toggleSelect(note.id)
+  else selectNote(note)
+}
+function toggleSelect(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id)
+  else selectedIds.add(id)
+  if (selectedIds.size === 0) selectionMode.value = false
+}
+function exitSelection() {
+  selectionMode.value = false
+  selectedIds.clear()
+}
+function selectAllInView() {
+  selectionMode.value = true
+  displayedNotes.value.forEach(n => selectedIds.add(n.id))
+}
+async function batchMove(ids, folderName) {
+  for (const id of ids) {
+    await notesStore.assignNoteFolder(id, folderName)
+  }
+  exitSelection()
+}
+async function batchDelete(ids) {
+  if (selectedNote.value && ids.includes(selectedNote.value.id)) {
+    flushPreviewSave()
+    selectedNote.value = null
+  }
+  const inTrash = ids.some(id => {
+    const n = notesStore.notes.find(x => x.id === id)
+    return n && n.folder === 'DELETED'
+  })
+  if (!confirm(inTrash
+    ? `确定永久删除选中的 ${ids.length} 个笔记？此操作不可撤销。`
+    : `确定删除选中的 ${ids.length} 个笔记？将移至回收站。`)) {
+    return
+  }
+  for (const id of ids) {
+    const n = notesStore.notes.find(x => x.id === id)
+    if (!n) continue
+    if (n.folder === 'DELETED') await notesStore.permanentDeleteNote(id)
+    else await notesStore.deleteNoteFromFolder(id)
+  }
+  exitSelection()
+}
+
+// ---- Right-click context menu for a note card ----
+function onNoteContextMenu(e, note) {
+  e.preventDefault()
+  // In multi-select mode, operate on the whole selection (and include the
+  // right-clicked note if it isn't part of it yet).
+  let ids = [note.id]
+  if (selectionMode.value && selectedIds.size > 0) {
+    if (!selectedIds.has(note.id)) selectedIds.add(note.id)
+    ids = Array.from(selectedIds)
+  }
+  const multi = ids.length > 1
+  const moveSubmenu = [
+    { label: '未归类', value: '', action: () => batchMove(ids, '') },
+    ...settingsStore.folders
+      .filter(f => !f.hidden)
+      .map(f => ({ label: f.name, value: f.name, action: () => batchMove(ids, f.name) })),
+  ]
+  const items = [
+    { label: '移动到', icon: 'folder', submenu: moveSubmenu },
+    ...(multi ? [] : [
+      note.pinned
+        ? { label: '取消置顶', icon: 'pin', action: () => notesStore.togglePin(note.id) }
+        : { label: '置顶', icon: 'pin', action: () => notesStore.togglePin(note.id) },
+      note.locked
+        ? { label: '解锁', icon: 'unlock', action: () => notesStore.updateNoteLocked(note.id, false) }
+        : { label: '锁定', icon: 'lock', action: () => notesStore.updateNoteLocked(note.id, true) },
+    ]),
+    { separator: true },
+    {
+      label: multi ? `删除 ${ids.length} 项` : '删除',
+      icon: 'delete',
+      danger: true,
+      action: () => batchDelete(ids),
+    },
+  ]
+  openMenu(e.clientX, e.clientY, items)
+}
+
+async function deleteNoteById(note) {
+  if (note.folder === 'DELETED') {
+    if (!confirm('确定永久删除此笔记？此操作不可撤销。')) return
+    await notesStore.permanentDeleteNote(note.id)
+  } else {
+    if (!confirm('确定删除此笔记？将移至回收站。')) return
+    await notesStore.deleteNoteFromFolder(note.id)
+  }
+  if (selectedNote.value?.id === note.id) selectedNote.value = null
+}
+
+// ---- Right-click context menu for a folder row ----
+function onFolderContextMenu(e, folderName) {
+  if (folderName === '未归类') return // pseudo-folder: not editable
+  e.preventDefault()
+  const folder = settingsStore.folders.find(f => f.name === folderName)
+  const items = [
+    { label: '重命名', icon: 'rename', action: () => renameFolderPrompt(folderName) },
+    { label: '删除', icon: 'delete', danger: true, action: () => deleteFolderConfirm(folderName) },
+    { separator: true },
+    folder?.hidden
+      ? { label: '显示文件夹', icon: 'eyeOn', action: () => settingsStore.toggleFolderHidden(folderName) }
+      : { label: '隐藏文件夹', icon: 'eyeOff', action: () => settingsStore.toggleFolderHidden(folderName) },
+  ]
+  openMenu(e.clientX, e.clientY, items)
+}
+
+// ---- Right-click context menu for a label row ----
+function onLabelContextMenu(e, labelName) {
+  e.preventDefault()
+  const items = [
+    { label: '重命名', icon: 'rename', action: () => renameLabelPrompt(labelName) },
+    { label: '删除', icon: 'delete', danger: true, action: () => deleteLabelConfirm(labelName) },
+  ]
+  openMenu(e.clientX, e.clientY, items)
 }
 
 function deselectNote() {
@@ -659,6 +946,7 @@ function deselectNote() {
 function selectAllNotes() {
   notesStore.currentFolder = 'NOTES'
   notesStore.currentLabel = null
+  notesStore.currentUserFolder = null
   notesStore.searchQuery = ''
   selectedNote.value = null
 }
@@ -666,6 +954,7 @@ function selectAllNotes() {
 function selectFolder(folder) {
   notesStore.currentFolder = folder
   notesStore.currentLabel = null
+  notesStore.currentUserFolder = null
   notesStore.searchQuery = ''
   selectedNote.value = null
 }
@@ -673,6 +962,7 @@ function selectFolder(folder) {
 function selectLabel(label) {
   notesStore.currentLabel = notesStore.currentLabel === label ? null : label
   notesStore.currentFolder = 'NOTES'
+  notesStore.currentUserFolder = null
   selectedNote.value = null
 }
 
@@ -745,8 +1035,154 @@ const hiddenLabelsToShow = computed(() => {
   return hidden.filter(l => allLabels.includes(l))
 })
 
+// Merged label list: labels from notes + sidebar-created labels not yet on any note
+const allAvailableLabels = computed(() => {
+  const set = new Set([...notesStore.allLabels, ...(settingsStore.createdLabels || [])])
+  return Array.from(set).sort()
+})
+
 async function toggleLabelVisibility(label) {
   await settingsStore.toggleLabelVisibility(label)
+}
+
+// ---- User folders (Android v1.2.4) ----
+const visibleFolders = computed(() => {
+  const folders = settingsStore.folders || []
+  return folders.filter(f => !f.hidden || settingsStore.revealHiddenFolders)
+})
+const hiddenFolders = computed(() => {
+  const folders = settingsStore.folders || []
+  return folders.filter(f => f.hidden && !settingsStore.revealHiddenFolders)
+})
+const foldersHaveHidden = computed(() => (settingsStore.folders || []).some(f => f.hidden))
+// All real user folders (excluding the virtual "未归类" pseudo-folder), sorted by
+// their stored order. Hidden folders are still rendered — with a strikethrough —
+// so hiding never removes them from the sidebar, it just de-emphasizes them and
+// pulls their notes out of the "全部笔记" view.
+const allFoldersSorted = computed(() => {
+  const folders = settingsStore.folders || []
+  return [...folders].sort((a, b) => (a.order || 0) - (b.order || 0))
+})
+
+function getFolderCount(name) {
+  return notesStore.notes.filter(n => n.folder === 'NOTES' && (n.folderId || '') === name).length
+}
+
+function selectUserFolder(name) {
+  notesStore.currentUserFolder = name
+  notesStore.currentFolder = 'NOTES'
+  notesStore.currentLabel = null
+  notesStore.searchQuery = ''
+  selectedNote.value = null
+  showFolderMenu.value = false
+}
+
+async function promptNewFolder(fromEditor = false) {
+  const name = window.prompt('新建文件夹名称')
+  showFolderMenu.value = false
+  if (!name) return
+  const trimmed = name.trim()
+  if (!trimmed) return
+  await settingsStore.addFolder(trimmed)
+  // In the editor, creating a folder is meant to file the current note into it —
+  // auto-assign so the note "enters" the new folder (matches Android's
+  // move-to-folder expectation). The sidebar "+" only builds the directory and
+  // leaves the open note where it is.
+  if (fromEditor && selectedNote.value) {
+    await notesStore.assignNoteFolder(selectedNote.value.id, trimmed)
+  }
+}
+
+// ---- In-editor label management (Android parity) ----
+// A note's labels are a list of strings (synced via labels.json). Toggling or
+// creating a label here writes straight back to the note and triggers a sync.
+async function toggleNoteLabel(label) {
+  if (!selectedNote.value) return
+  const current = selectedNote.value.labels || []
+  const next = current.includes(label)
+    ? current.filter(l => l !== label)
+    : [...current, label]
+  await notesStore.updateNoteLabels(selectedNote.value.id, next)
+}
+
+async function removeNoteLabel(label) {
+  if (!selectedNote.value) return
+  const current = selectedNote.value.labels || []
+  if (!current.includes(label)) return
+  await notesStore.updateNoteLabels(selectedNote.value.id, current.filter(l => l !== label))
+}
+
+async function promptNewLabel() {
+  const name = window.prompt('新建标签名称')
+  showLabelMenu.value = false
+  if (!name) return
+  const trimmed = name.trim()
+  if (!trimmed) return
+  const current = selectedNote.value?.labels || []
+  if (current.includes(trimmed)) return
+  await notesStore.updateNoteLabels(selectedNote.value.id, [...current, trimmed])
+}
+
+async function promptNewLabelSidebar() {
+  const name = window.prompt('新建标签名称')
+  if (!name) return
+  const trimmed = name.trim()
+  if (!trimmed) return
+  await settingsStore.addCreatedLabel(trimmed)
+}
+
+async function renameLabelPrompt(oldName) {
+  const newName = window.prompt('重命名标签', oldName)
+  if (!newName) return
+  const trimmed = newName.trim()
+  if (!trimmed || trimmed === oldName) return
+  // Rename label across all notes that have it
+  const notes = notesStore.notes.filter(n => (n.labels || []).includes(oldName))
+  for (const note of notes) {
+    const labels = note.labels.map(l => l === oldName ? trimmed : l)
+    await notesStore.updateNoteLabels(note.id, labels)
+  }
+  // Also rename in createdLabels if present
+  const ci = settingsStore.createdLabels.indexOf(oldName)
+  if (ci >= 0) {
+    settingsStore.createdLabels[ci] = trimmed
+    await putSetting('createdLabels', [...settingsStore.createdLabels])
+  }
+}
+
+async function deleteLabelConfirm(labelName) {
+  if (!window.confirm(`确定删除标签「${labelName}」吗？\n该标签将从所有笔记中移除。`)) return
+  // Remove label from all notes that have it
+  const notes = notesStore.notes.filter(n => (n.labels || []).includes(labelName))
+  for (const note of notes) {
+    const labels = note.labels.filter(l => l !== labelName)
+    await notesStore.updateNoteLabels(note.id, labels)
+  }
+  // Also remove from createdLabels if present
+  const ci = settingsStore.createdLabels.indexOf(labelName)
+  if (ci >= 0) {
+    settingsStore.createdLabels.splice(ci, 1)
+    await putSetting('createdLabels', [...settingsStore.createdLabels])
+  }
+}
+
+function renameFolderPrompt(name) {
+  const nn = window.prompt('重命名文件夹', name)
+  if (!nn) return
+  settingsStore.renameFolder(name, nn.trim())
+}
+
+function deleteFolderConfirm(name) {
+  if (window.confirm(`删除文件夹"${name}"？相关笔记将变为未分类。`)) {
+    settingsStore.deleteFolder(name)
+    if (notesStore.currentUserFolder === name) notesStore.currentUserFolder = null
+  }
+}
+
+async function assignCurrentFolder(name) {
+  showFolderMenu.value = false
+  if (!selectedNote.value) return
+  await notesStore.assignNoteFolder(selectedNote.value.id, name)
 }
 
 async function loadPreviewImages() {
@@ -969,6 +1405,52 @@ function onPreviewEditorClick(e) {
   }
 }
 
+// Right-click inside the editor. Two cases:
+//   - on an inline image: 查看 / 复制 / 剪切 / 删除
+//   - on text or empty space: 复制 / 剪切 (when there is a selection) and 粘贴
+//     (when the clipboard holds something). Native copy/paste can't carry inline
+//     images, so we drive everything through our own clipboard.
+function onPreviewEditorContextMenu(e) {
+  const target = e.target
+  const editor = previewEditorRef.value
+  if (target && target.tagName === 'IMG' && target.classList && target.classList.contains('inline-image')) {
+    e.preventDefault()
+    e.stopPropagation()
+    const src = target.getAttribute('src')
+    const img = target
+    const items = [
+      { label: '查看', icon: 'eyeOn', action: () => { if (src) openImage(src) } },
+      { separator: true },
+      { label: '复制', icon: 'copy', action: () => copyImage(img) },
+      { label: '剪切', icon: 'cut', action: () => cutImage(img) },
+      { separator: true },
+      { label: '删除', icon: 'delete', danger: true, action: () => deleteInlineImages([img]) },
+    ]
+    openMenu(e.clientX, e.clientY, items)
+    return
+  }
+
+  // Text or empty area. Offer 复制/剪切 if there is a non-collapsed selection,
+  // and 粘贴 whenever the clipboard has content. Let native through otherwise.
+  const sel = window.getSelection()
+  const hasSelection = !!sel && sel.rangeCount > 0 && !sel.isCollapsed &&
+    !!editor && editor.contains(sel.getRangeAt(0).commonAncestorContainer)
+  const items = []
+  if (hasSelection) {
+    items.push({ label: '复制', icon: 'copy', action: () => doCopy() })
+    items.push({ label: '剪切', icon: 'cut', action: () => doCut() })
+  }
+  if (clipboardHasData()) {
+    if (items.length) items.push({ separator: true })
+    items.push({ label: '粘贴', icon: 'paste', action: () => pasteFromInternal() })
+  }
+  if (items.length) {
+    e.preventDefault()
+    e.stopPropagation()
+    openMenu(e.clientX, e.clientY, items)
+  }
+}
+
 // Explicit single-key deletion of inline images. Relying on the browser's native
 // Backspace/Delete around a contenteditable=false image is unreliable: with a
 // trailing <br> it takes two presses (br first, then image), and when an image is
@@ -977,6 +1459,17 @@ function onPreviewEditorClick(e) {
 // image (or a selection covers one) and remove the DOM node ourselves, keeping
 // note.images in sync so the body <-> images position mapping never desyncs.
 function onPreviewEditorKeydown(e) {
+  const meta = e.ctrlKey || e.metaKey
+  if (meta && (e.key === 'c' || e.key === 'C')) {
+    doCopy()
+    e.preventDefault()
+    return
+  }
+  if (meta && (e.key === 'x' || e.key === 'X')) {
+    doCut()
+    e.preventDefault()
+    return
+  }
   if (e.key !== 'Backspace' && e.key !== 'Delete') return
   if (e.isComposing) return
   const sel = window.getSelection()
@@ -1087,6 +1580,223 @@ function deleteInlineImages(imgs) {
     } catch {}
   }
   onPreviewInput()
+}
+
+// --- Cut / Copy / Paste (custom clipboard so inline images survive) ---
+
+// Collect every inline image whose DOM node intersects the given range, in
+// document order, together with its note.images entry. Used by copy/cut to know
+// which attachments travel with the selection.
+function imagesInRange(range) {
+  const editor = previewEditorRef.value
+  const out = []
+  if (!editor) return out
+  editor.querySelectorAll('img.inline-image').forEach(img => {
+    if (range.intersectsNode(img)) {
+      const fname = img.getAttribute('data-fname')
+      if (!fname) return
+      const entry = (selectedNote.value.images || []).find(x => getImageFileName(x) === fname)
+      out.push({ img, fname, entry })
+    }
+  })
+  return out
+}
+
+// Capture the current selection (text + any inline images inside it) into the
+// clipboard without altering the note.
+async function doCopy() {
+  const editor = previewEditorRef.value
+  const sel = window.getSelection()
+  if (!editor || !sel || sel.rangeCount === 0) return
+  const range = sel.getRangeAt(0)
+  if (!editor.contains(range.commonAncestorContainer)) return
+  if (sel.isCollapsed) return
+
+  const tmp = document.createElement('div')
+  tmp.appendChild(range.cloneContents())
+  const captured = imagesInRange(range)
+  const images = []
+  for (const c of captured) {
+    let blob = null
+    try { blob = await getAttachment(c.fname) } catch {}
+    images.push({ fname: c.fname, entry: c.entry || { localName: c.fname }, blob })
+  }
+  setClipboard({ html: tmp.innerHTML, text: range.toString(), images })
+}
+
+// Capture the selection AND remove it from the note (DOM + note.images entries).
+// The attachment blob is deliberately kept in IndexedDB and the remote WebDAV
+// file is left untouched — a later paste just re-references the same name, so
+// there is no delete-and-re-upload round trip.
+async function doCut() {
+  const editor = previewEditorRef.value
+  const sel = window.getSelection()
+  if (!editor || !sel || sel.rangeCount === 0) return
+  const range = sel.getRangeAt(0)
+  if (!editor.contains(range.commonAncestorContainer)) return
+  if (sel.isCollapsed) return
+
+  const tmp = document.createElement('div')
+  tmp.appendChild(range.cloneContents())
+  const captured = imagesInRange(range)
+  const images = []
+  for (const c of captured) {
+    let blob = null
+    try { blob = await getAttachment(c.fname) } catch {}
+    images.push({ fname: c.fname, entry: c.entry || { localName: c.fname }, blob })
+  }
+  const removed = new Set(images.map(i => i.fname))
+  if (removed.size && selectedNote.value.images) {
+    selectedNote.value.images = selectedNote.value.images.filter(img => !removed.has(getImageFileName(img)))
+  }
+  range.deleteContents()
+  // Collapse the caret where the removed content used to be.
+  try {
+    sel.removeAllRanges()
+    const r = document.createRange()
+    r.setStart(range.startContainer, range.startOffset)
+    r.collapse(true)
+    sel.addRange(r)
+  } catch {}
+  setClipboard({ html: tmp.innerHTML, text: range.toString(), images })
+  onPreviewInput()
+}
+
+// Copy a single inline image (right-click 复制).
+async function copyImage(img) {
+  const fname = img.getAttribute('data-fname')
+  if (!fname) return
+  const entry = (selectedNote.value.images || []).find(x => getImageFileName(x) === fname)
+  let blob = null
+  try { blob = await getAttachment(fname) } catch {}
+  setClipboard({ html: img.outerHTML, text: '', images: [{ fname, entry: entry || { localName: fname }, blob }] })
+}
+
+// Cut a single inline image (right-click 剪切): capture then delete.
+async function cutImage(img) {
+  await copyImage(img)
+  deleteInlineImages([img])
+}
+
+// Re-resolve src for just-inserted inline images (those we flagged before
+// splicing). Avoids re-resolving / leaking URLs on every image in the editor.
+async function resolveJustInsertedImages() {
+  const editor = previewEditorRef.value
+  if (!editor) return
+  const nodes = editor.querySelectorAll('img.inline-image[data-just-inserted]')
+  for (const el of nodes) {
+    const fname = el.getAttribute('data-fname')
+    el.removeAttribute('data-just-inserted')
+    if (!fname) continue
+    let blob = null
+    try { blob = await getAttachment(fname) } catch {}
+    if (!blob) continue
+    const url = URL.createObjectURL(blob)
+    createdPreviewUrls.add(url)
+    el.src = url
+  }
+}
+
+// Paste from our own clipboard at the current caret (replacing any selection).
+// Text pastes as formatted HTML; inline images are spliced back into note.images
+// at the correct positional index and re-resolved from IndexedDB. Because the
+// same attachment file name travels with the image, a cross-note paste reuses
+// the existing WebDAV file instead of re-uploading it.
+async function pasteFromInternal() {
+  const editor = previewEditorRef.value
+  if (!editor || !selectedNote.value) return
+  const data = getClipboard()
+  if (!data.html && !data.text && !data.images.length) return
+
+  const sel = window.getSelection()
+  let range
+  if (sel && sel.rangeCount > 0 && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+    range = sel.getRangeAt(0)
+  } else {
+    range = document.createRange()
+    range.selectNodeContents(editor)
+    range.collapse(false)
+  }
+
+  // If pasting replaces a selection that contains images, drop those first so
+  // the body <-> images mapping stays aligned.
+  if (!sel.isCollapsed) {
+    const replaced = imagesInRange(range)
+    if (replaced.length && selectedNote.value.images) {
+      const removed = new Set(replaced.map(r => r.fname))
+      selectedNote.value.images = selectedNote.value.images.filter(img => !removed.has(getImageFileName(img)))
+    }
+  }
+
+  // Index where new images' \uFFFC will land = number of images before the caret.
+  const insertIndex = countInlineImagesBeforeCaret(editor)
+  const lastInserted = (function () {
+    const frag = document.createDocumentFragment()
+    const tmp = document.createElement('div')
+    tmp.innerHTML = data.html || ''
+    tmp.querySelectorAll('img.inline-image').forEach(el => el.setAttribute('data-just-inserted', '1'))
+    let last = null
+    while (tmp.firstChild) {
+      last = tmp.firstChild
+      frag.appendChild(tmp.firstChild)
+    }
+    return { frag, last }
+  })()
+
+  range.deleteContents()
+  range.insertNode(lastInserted.frag)
+
+  // Splice the carried image entries back into note.images, in document order.
+  if (data.images.length) {
+    if (!selectedNote.value.images) selectedNote.value.images = []
+    for (let k = 0; k < data.images.length; k++) {
+      const im = data.images[k]
+      if (im.blob) {
+        try { await putAttachment(im.fname, im.blob) } catch {}
+      }
+      const entry = im.entry || { localName: im.fname }
+      if (!entry.localName) entry.localName = im.fname
+      selectedNote.value.images.splice(insertIndex + k, 0, entry)
+    }
+  }
+
+  await resolveJustInsertedImages()
+
+  // Place the caret right after the inserted content.
+  if (lastInserted.last) {
+    try {
+      const r = document.createRange()
+      r.setStartAfter(lastInserted.last)
+      r.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(r)
+    } catch {}
+  }
+  editor.focus()
+  onPreviewInput()
+  // A cut is consumed once pasted; a copy can be pasted repeatedly.
+  clearClipboard()
+}
+
+// Native paste event: prefer our own clipboard (it carries images + formatting);
+// else, if the OS clipboard dropped image files, insert them as new attachments;
+// else let the browser paste text natively.
+function onPreviewEditorPaste(e) {
+  if (!selectedNote.value || selectedNote.value.type === 'LIST') return
+  if (clipboardHasData()) {
+    e.preventDefault()
+    pasteFromInternal()
+    return
+  }
+  if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length) {
+    const imgs = Array.from(e.clipboardData.files).filter(f => f.type && f.type.startsWith('image/'))
+    if (imgs.length) {
+      e.preventDefault()
+      insertImageFiles(imgs)
+      return
+    }
+  }
+  // otherwise native text paste proceeds
 }
 
 function onPreviewInput() {
@@ -1319,10 +2029,18 @@ function countInlineImagesBeforeCaret(editor) {
 
 async function onImageFilesSelected(event) {
   const files = event.target.files
-  if (!files || files.length === 0 || !selectedNote.value) return
+  if (!files || files.length === 0) return
+  await insertImageFiles(Array.from(files))
+  if (imageInputRef.value) imageInputRef.value.value = ''
+}
+
+// Insert one or more image files as new inline attachments at the caret. Shared
+// by the file picker (onImageFilesSelected) and the OS-clipboard paste path.
+async function insertImageFiles(files) {
+  if (!selectedNote.value || !files || files.length === 0) return
   const editor = previewEditorRef.value
   for (const file of files) {
-    if (!file.type.startsWith('image/')) continue
+    if (!file.type || !file.type.startsWith('image/')) continue
     const fileName = `${Date.now()}_${file.name}`
     await putAttachment(fileName, file)
     if (!selectedNote.value.images) selectedNote.value.images = []
@@ -1372,7 +2090,6 @@ async function onImageFilesSelected(event) {
     }
     onPreviewInput()
   }
-  if (imageInputRef.value) imageInputRef.value.value = ''
 }
 
 function formatBytes(bytes) {

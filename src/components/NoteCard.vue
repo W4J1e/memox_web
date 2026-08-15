@@ -3,6 +3,7 @@
     class="card p-3 cursor-pointer hover:shadow-md transition-all duration-200 group flex flex-col break-inside-avoid mb-3"
     :style="noteStyle"
     @click="$emit('click')"
+    @contextmenu.prevent="$emit('contextmenu', $event, note)"
   >
     <!-- Thumbnail image -->
     <div v-if="thumbnailUrl && !note.locked" class="w-full rounded-lg overflow-hidden mb-2 bg-gray-100 dark:bg-gray-700 shrink-0">
@@ -79,7 +80,7 @@ const props = defineProps({
   thumbnailUrl: { type: String, default: '' },
 })
 
-defineEmits(['click', 'img-error'])
+defineEmits(['click', 'img-error', 'contextmenu'])
 
 const noteStyle = computed(() => getNoteColorStyle(props.note.color))
 

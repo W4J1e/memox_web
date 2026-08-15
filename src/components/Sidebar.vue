@@ -37,34 +37,50 @@
           <span class="text-xs text-gray-400 ml-auto">{{ notesStore.deletedNotes.length }}</span>
         </div>
 
-        <!-- Labels -->
-        <div v-if="notesStore.allLabels.length || hiddenLabelsToShow.length" class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
-          <h3 class="px-3 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">标签</h3>
+        <!-- User folders (Android v1.2.4) — ABOVE labels -->
+        <div class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div class="flex items-center justify-between px-3 mb-1">
+            <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">文件夹</span>
+            <button @click="promptNewFolder" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="新建文件夹">
+              <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+            </button>
+          </div>
+          <FolderItem
+            label="未归类"
+            :count="getFolderCount('')"
+            :active="notesStore.currentUserFolder === ''"
+            :can-edit="false"
+            @click="selectUserFolder('')"
+          />
+          <FolderItem
+            v-for="f in allFoldersSorted"
+            :key="f.name"
+            :label="f.name"
+            :count="getFolderCount(f.name)"
+            :active="notesStore.currentUserFolder === f.name"
+            :hidden="f.hidden"
+            @click="selectUserFolder(f.name)"
+            @contextmenu="onFolderContextMenu"
+          />
+        </div>
+
+        <!-- Labels (below folders) -->
+        <div v-if="allAvailableLabels.length" class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div class="flex items-center justify-between px-3 mb-1">
+            <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">标签</span>
+            <button @click="promptNewLabelSidebar" class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="新建标签">
+              <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+            </button>
+          </div>
           <LabelItem
-            v-for="label in notesStore.allLabels"
+            v-for="label in allAvailableLabels"
             :key="label"
             :label="label"
             :count="getLabelCount(label)"
             :active="notesStore.currentLabel === label"
-            :hidden="false"
             @select="selectLabel"
-            @toggle-visibility="toggleLabelVisibility"
+            @contextmenu="onLabelContextMenu"
           />
-          <template v-if="hiddenLabelsToShow.length">
-            <div class="px-3 py-1 mt-1">
-              <span class="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider">已隐藏</span>
-            </div>
-            <LabelItem
-              v-for="label in hiddenLabelsToShow"
-              :key="'h_' + label"
-              :label="label"
-              :count="getLabelCount(label)"
-              :active="notesStore.currentLabel === label"
-              :hidden="true"
-              @select="selectLabel"
-              @toggle-visibility="toggleLabelVisibility"
-            />
-          </template>
         </div>
       </div>
 
@@ -85,6 +101,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Global right-click context menu (folders / labels) -->
+  <ContextMenu />
 </template>
 
 <script setup>
@@ -92,7 +111,11 @@ import { computed } from 'vue'
 import { useNotesStore } from '../stores/notes'
 import { useSettingsStore } from '../stores/settings'
 import { useLockStore } from '../stores/lock'
+import { putSetting } from '../utils/storage'
 import LabelItem from './LabelItem.vue'
+import FolderItem from './FolderItem.vue'
+import ContextMenu from './ContextMenu.vue'
+import { useContextMenu } from '../composables/contextMenu'
 
 defineProps({
   visible: { type: Boolean, default: false },
@@ -103,6 +126,7 @@ defineEmits(['close'])
 const notesStore = useNotesStore()
 const settingsStore = useSettingsStore()
 const lockStore = useLockStore()
+const { openMenu } = useContextMenu()
 
 const hiddenLabelsToShow = computed(() => {
   const hidden = settingsStore.hiddenLabels || []
@@ -110,15 +134,23 @@ const hiddenLabelsToShow = computed(() => {
   return hidden.filter(l => allLabels.includes(l))
 })
 
+// Merged label list: labels from notes + sidebar-created labels not yet on any note
+const allAvailableLabels = computed(() => {
+  const set = new Set([...notesStore.allLabels, ...(settingsStore.createdLabels || [])])
+  return Array.from(set).sort()
+})
+
 function selectFolder(folder) {
   notesStore.currentFolder = folder
   notesStore.currentLabel = null
+  notesStore.currentUserFolder = null
   notesStore.searchQuery = ''
 }
 
 function selectLabel(label) {
   notesStore.currentLabel = notesStore.currentLabel === label ? null : label
   notesStore.currentFolder = 'NOTES'
+  notesStore.currentUserFolder = null
 }
 
 function getLabelCount(label) {
@@ -127,6 +159,119 @@ function getLabelCount(label) {
 
 async function toggleLabelVisibility(label) {
   await settingsStore.toggleLabelVisibility(label)
+}
+
+async function promptNewLabelSidebar() {
+  const name = window.prompt('新建标签名称')
+  if (!name) return
+  const trimmed = name.trim()
+  if (!trimmed) return
+  await settingsStore.addCreatedLabel(trimmed)
+}
+
+async function renameLabelPrompt(oldName) {
+  const newName = window.prompt('重命名标签', oldName)
+  if (!newName) return
+  const trimmed = newName.trim()
+  if (!trimmed || trimmed === oldName) return
+  const notes = notesStore.notes.filter(n => (n.labels || []).includes(oldName))
+  for (const note of notes) {
+    const labels = note.labels.map(l => l === oldName ? trimmed : l)
+    await notesStore.updateNoteLabels(note.id, labels)
+  }
+  const ci = settingsStore.createdLabels.indexOf(oldName)
+  if (ci >= 0) {
+    settingsStore.createdLabels[ci] = trimmed
+    await putSetting('createdLabels', [...settingsStore.createdLabels])
+  }
+}
+
+async function deleteLabelConfirm(labelName) {
+  if (!window.confirm(`确定删除标签「${labelName}」吗？\n该标签将从所有笔记中移除。`)) return
+  const notes = notesStore.notes.filter(n => (n.labels || []).includes(labelName))
+  for (const note of notes) {
+    const labels = note.labels.filter(l => l !== labelName)
+    await notesStore.updateNoteLabels(note.id, labels)
+  }
+  const ci = settingsStore.createdLabels.indexOf(labelName)
+  if (ci >= 0) {
+    settingsStore.createdLabels.splice(ci, 1)
+    await putSetting('createdLabels', [...settingsStore.createdLabels])
+  }
+}
+
+// ---- User folders (Android v1.2.4) ----
+const visibleFolders = computed(() => {
+  const folders = settingsStore.folders || []
+  return folders.filter(f => !f.hidden || settingsStore.revealHiddenFolders)
+})
+const hiddenFolders = computed(() => {
+  const folders = settingsStore.folders || []
+  return folders.filter(f => f.hidden && !settingsStore.revealHiddenFolders)
+})
+const foldersHaveHidden = computed(() => (settingsStore.folders || []).some(f => f.hidden))
+// All real user folders, sorted by stored order. Hidden ones render with a
+// strikethrough (FolderItem :hidden) but stay visible in the list — hiding only
+// de-emphasizes them and removes their notes from the "全部笔记" view.
+const allFoldersSorted = computed(() => {
+  const folders = settingsStore.folders || []
+  return [...folders].sort((a, b) => (a.order || 0) - (b.order || 0))
+})
+
+function getFolderCount(name) {
+  return notesStore.notes.filter(n => n.folder === 'NOTES' && (n.folderId || '') === name).length
+}
+
+function selectUserFolder(name) {
+  notesStore.currentUserFolder = name
+  notesStore.currentFolder = 'NOTES'
+  notesStore.currentLabel = null
+  notesStore.searchQuery = ''
+}
+
+async function promptNewFolder() {
+  const name = window.prompt('新建文件夹名称')
+  if (!name) return
+  await settingsStore.addFolder(name.trim())
+}
+
+function renameFolderPrompt(name) {
+  const nn = window.prompt('重命名文件夹', name)
+  if (!nn) return
+  settingsStore.renameFolder(name, nn.trim())
+}
+
+function deleteFolderConfirm(name) {
+  if (window.confirm(`删除文件夹"${name}"？相关笔记将变为未分类。`)) {
+    settingsStore.deleteFolder(name)
+    if (notesStore.currentUserFolder === name) notesStore.currentUserFolder = null
+  }
+}
+
+// ---- Right-click context menu for a folder row ----
+function onFolderContextMenu(e, folderName) {
+  if (folderName === '未归类') return // pseudo-folder: not editable
+  e.preventDefault()
+  const folder = settingsStore.folders.find(f => f.name === folderName)
+  const items = [
+    { label: '重命名', icon: 'rename', action: () => renameFolderPrompt(folderName) },
+    { label: '删除', icon: 'delete', danger: true, action: () => deleteFolderConfirm(folderName) },
+    { separator: true },
+    folder?.hidden
+      ? { label: '显示文件夹', icon: 'eyeOn', action: () => settingsStore.toggleFolderHidden(folderName) }
+      : { label: '隐藏文件夹', icon: 'eyeOff', action: () => settingsStore.toggleFolderHidden(folderName) },
+  ]
+  openMenu(e.clientX, e.clientY, items)
+}
+
+// ---- Right-click context menu for a label row ----
+function onLabelContextMenu(e, labelName) {
+  e.preventDefault()
+  const items = [
+    { label: '重命名', icon: 'rename', action: () => renameLabelPrompt(labelName) },
+    { label: '删除', icon: 'delete', danger: true, action: () => deleteLabelConfirm(labelName) },
+  ]
+  openMenu(e.clientX, e.clientY, items)
 }
 
 function lockApp() {

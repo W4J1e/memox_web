@@ -18,6 +18,16 @@ export const useSettingsStore = defineStore('settings', () => {
   const lastSyncTime = ref(0)
   const tombstones = ref([])
   const hiddenLabels = ref([])
+  // Local-only user-folder directory (Android v1.2.4, Plan B). Holds presentation
+  // metadata only — display order + hidden state. It is NEVER uploaded to WebDAV;
+  // only each note's folderId travels with the note JSON. Folders.json is
+  // deliberately NOT synced (unlike labels.json).
+  const folders = ref([]) // [{ name: string, order: number, hidden: boolean }]
+  const revealHiddenFolders = ref(false)
+  // Labels created from sidebar "+" that aren't yet on any note.
+  // Merged into sidebar display; once assigned to a note they naturally appear
+  // in notesStore.allLabels and can be pruned from this list.
+  const createdLabels = ref([]) // string[]
   const lockOnStartup = ref(true)
   // Attachment file names scheduled for deletion from the remote store. A note's
   // attachments are enqueued here when the note is permanently deleted (from the
@@ -41,6 +51,9 @@ export const useSettingsStore = defineStore('settings', () => {
     lastSyncTime.value = await getSetting('lastSyncTime', 0)
     tombstones.value = await getSetting('tombstones', [])
     hiddenLabels.value = await getSetting('hiddenLabels', [])
+    folders.value = await getSetting('folders', [])
+    revealHiddenFolders.value = await getSetting('revealHiddenFolders', false)
+    createdLabels.value = await getSetting('createdLabels', [])
     pendingAttachmentCleanup.value = await getSetting('pendingAttachmentCleanup', [])
     lockOnStartup.value = await getSetting('lockOnStartup', true)
     applyTheme()
@@ -358,6 +371,9 @@ export const useSettingsStore = defineStore('settings', () => {
   function notesContentEqual(a, b) {
     if (!a || !b) return false
     if ((a.title || '') !== (b.title || '')) return false
+    // folderId is a synced field — a folder change is a real edit and must
+    // upload, so it participates in the equality check.
+    if ((a.folderId || '') !== (b.folderId || '')) return false
     if (a.type === 'LIST') {
       return JSON.stringify(a.items || []) === JSON.stringify(b.items || [])
     }
@@ -447,12 +463,26 @@ export const useSettingsStore = defineStore('settings', () => {
         let remoteNote
         try { remoteNote = jsonToNote(remoteText) } catch { continue }
 
+        // Auto-create (Plan B): a remote note carrying a folderId we don't have
+        // locally means another device made that folder — materialize it so it
+        // shows up in the sidebar without any file upload.
+        if (remoteNote.folderId) ensureFolder(remoteNote.folderId)
+
         // Semantic reconciliation: if the two notes carry the same actual content
         // (ignoring whitespace / image-placeholder noise and the stray <br> anchors
         // some buggy builds left on WebDAV), treat them as identical. This stops
         // the "ghost upload" storm where unchanged notes get re-pushed every sync
         // and clobber the Android copy.
-        if (notesContentEqual(localNote, remoteNote)) continue
+        if (notesContentEqual(localNote, remoteNote)) {
+          // Content matches, but the server copy may still be in the legacy
+          // single-line (old web) layout. Rewrite it in pretty-printed form so it
+          // reads like Android's multi-line JSON. Already-multi-line copies (e.g.
+          // Android's Gson output) are left untouched to avoid needless uploads.
+          // After the one-time rewrite the byte sizes line up and the note is
+          // skipped on subsequent syncs instead of being re-downloaded every run.
+          if (remoteText && !/[\n\r]/.test(remoteText)) toUpload.push(localNote)
+          continue
+        }
 
         const remoteTs = remoteNote.modifiedTimestamp || 0
         const localTs = localNote.modifiedTimestamp || 0
@@ -479,6 +509,7 @@ export const useSettingsStore = defineStore('settings', () => {
         if (remoteText) {
           try {
             const remoteNote = jsonToNote(remoteText)
+            if (remoteNote.folderId) ensureFolder(remoteNote.folderId)
             // Preserve the remote modifiedTimestamp. A freshly downloaded note must
             // NOT be re-stamped "now", or the next sync's conflict rule (local newer
             // -> overwrite remote) would treat it as locally-edited and push it back
@@ -766,6 +797,81 @@ export const useSettingsStore = defineStore('settings', () => {
     return hiddenLabels.value.includes(label)
   }
 
+  async function addCreatedLabel(name) {
+    if (!name || createdLabels.value.includes(name)) return
+    if (useNotesStore().allLabels.includes(name)) return // already on a note
+    const list = [...createdLabels.value, name]
+    createdLabels.value = list
+    await putSetting('createdLabels', list)
+  }
+
+  // ---- Local user-folder directory (Plan B) ----
+  // Only note.folderId is synced. This directory is local presentation metadata
+  // (order + hidden). ensureFolder is the auto-create step: when a remote note
+  // arriving from another device carries a folderId we don't have locally, we
+  // materialize it so the folder shows up in the sidebar.
+  function ensureFolder(name) {
+    if (!name) return
+    const list = folders.value.slice()
+    if (list.some(f => f.name === name)) return
+    list.push({ name, order: list.length, hidden: false })
+    list.sort((a, b) => a.order - b.order)
+    folders.value = list
+    putSetting('folders', list)
+  }
+
+  async function addFolder(name) {
+    const trimmed = (name || '').trim()
+    if (!trimmed) return
+    if (folders.value.some(f => f.name === trimmed)) return
+    const list = [...folders.value, { name: trimmed, order: folders.value.length, hidden: false }]
+    list.sort((a, b) => a.order - b.order)
+    folders.value = list
+    await putSetting('folders', list)
+  }
+
+  async function renameFolder(oldName, newName) {
+    const trimmed = (newName || '').trim()
+    if (!trimmed || !oldName || trimmed === oldName) return
+    // Directory entry first.
+    folders.value = folders.value.map(f => f.name === oldName ? { ...f, name: trimmed } : f)
+    // Then repoint every local note that referenced the old name.
+    const ns = useNotesStore()
+    for (const n of ns.notes) {
+      if (n.folderId === oldName) {
+        n.folderId = trimmed
+        n.modifiedTimestamp = Date.now()
+        await ns.saveNote(n)
+      }
+    }
+    await putSetting('folders', folders.value)
+  }
+
+  async function deleteFolder(name) {
+    if (!name) return
+    folders.value = folders.value.filter(f => f.name !== name)
+    const ns = useNotesStore()
+    for (const n of ns.notes) {
+      if (n.folderId === name) {
+        n.folderId = '' // back to uncategorized
+        n.modifiedTimestamp = Date.now()
+        await ns.saveNote(n)
+      }
+    }
+    await putSetting('folders', folders.value)
+  }
+
+  function toggleFolderHidden(name) {
+    const list = folders.value.map(f => f.name === name ? { ...f, hidden: !f.hidden } : f)
+    folders.value = list
+    putSetting('folders', list)
+  }
+
+  function setRevealHiddenFolders(val) {
+    revealHiddenFolders.value = !!val
+    putSetting('revealHiddenFolders', revealHiddenFolders.value)
+  }
+
   async function saveLockOnStartup(val) {
     lockOnStartup.value = val
     await putSetting('lockOnStartup', val)
@@ -784,7 +890,10 @@ export const useSettingsStore = defineStore('settings', () => {
     lastSyncTime,
     tombstones,
     hiddenLabels,
+    createdLabels,
     lockOnStartup,
+    folders,
+    revealHiddenFolders,
     loadSettings,
     saveWebdavSettings,
     saveTheme,
@@ -802,6 +911,13 @@ export const useSettingsStore = defineStore('settings', () => {
     scheduleAutoSync,
     toggleLabelVisibility,
     isLabelHidden,
+    addCreatedLabel,
+    ensureFolder,
+    addFolder,
+    renameFolder,
+    deleteFolder,
+    toggleFolderHidden,
+    setRevealHiddenFolders,
     saveLockOnStartup,
     getClient,
   }

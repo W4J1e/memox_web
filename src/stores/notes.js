@@ -16,17 +16,42 @@ export const useNotesStore = defineStore('notes', () => {
   const currentFolder = ref('NOTES')
   const searchQuery = ref('')
   const currentLabel = ref(null)
+  // User-folder selection (Android v1.2.4). null = all notes (system folder only),
+  // '' = uncategorized, a string = that folder's name. Distinct from currentFolder,
+  // which is the Android SYSTEM location (NOTES/ARCHIVED/DELETED).
+  const currentUserFolder = ref(null)
   const loading = ref(false)
 
   const activeNotes = computed(() => {
-    let filtered = notes.value.filter(n => n.folder === currentFolder.value)
+    let filtered
+    if (currentUserFolder.value !== null) {
+      // Viewing a user folder: show only its notes that live in the active system
+      // folder (NOTES). Archived/trashed notes stay in their own system views.
+      filtered = notes.value.filter(n => n.folder === 'NOTES' && (n.folderId || '') === (currentUserFolder.value || ''))
+    } else {
+      filtered = notes.value.filter(n => n.folder === currentFolder.value)
+    }
     // Filter out notes with hidden labels (when not searching and not specifically viewing a label)
     if (!currentLabel.value && !searchQuery.value.trim()) {
-      let hidden = []
-      try { hidden = useSettingsStore().hiddenLabels || [] } catch {}
-      if (hidden.length > 0) {
-        filtered = filtered.filter(n => !(n.labels && n.labels.some(l => hidden.includes(l))))
-      }
+      try {
+        const settings = useSettingsStore()
+        // Hidden labels: notes carrying any hidden label are removed from the view
+        const hidden = settings.hiddenLabels || []
+        if (hidden.length > 0) {
+          filtered = filtered.filter(n => !(n.labels && n.labels.some(l => hidden.includes(l))))
+        }
+        // Hidden user folders: notes living in a hidden folder disappear from the
+        // "全部笔记" (NOTES) view, exactly like hidden labels. Only applies to the
+        // NOTES system folder — ARCHIVED/DELETED keep their own system views.
+        if (currentFolder.value === 'NOTES') {
+          const hiddenFolders = (settings.folders || [])
+            .filter(f => f.hidden)
+            .map(f => f.name)
+          if (hiddenFolders.length > 0) {
+            filtered = filtered.filter(n => !(n.folderId && hiddenFolders.includes(n.folderId)))
+          }
+        }
+      } catch {}
     }
     if (currentLabel.value) {
       filtered = filtered.filter(n => n.labels && n.labels.includes(currentLabel.value))
@@ -226,6 +251,24 @@ export const useNotesStore = defineStore('notes', () => {
     triggerAutoSync()
   }
 
+  // Assign (or clear) a note's user folder. folderName === '' means uncategorized.
+  // Setting folderId bumps modifiedTimestamp so the change propagates on the next
+  // sync (folderId is a synced field). A non-empty name that isn't in the local
+  // directory yet is auto-created so it appears in the sidebar.
+  async function assignNoteFolder(id, folderName) {
+    const note = notes.value.find(n => n.id === id)
+    if (!note) return
+    const name = folderName || ''
+    if ((note.folderId || '') === name) return
+    note.folderId = name
+    note.modifiedTimestamp = Date.now()
+    await putNote(note)
+    if (name) {
+      try { useSettingsStore().ensureFolder(name) } catch {}
+    }
+    triggerAutoSync()
+  }
+
   async function replaceAllNotes(newNotes) {
     await clearNotes()
     await putNotes(newNotes)
@@ -237,6 +280,7 @@ export const useNotesStore = defineStore('notes', () => {
     currentFolder,
     searchQuery,
     currentLabel,
+    currentUserFolder,
     loading,
     activeNotes,
     deletedNotes,
@@ -256,6 +300,7 @@ export const useNotesStore = defineStore('notes', () => {
     updateNoteColor,
     updateNoteLabels,
     updateNoteLocked,
+    assignNoteFolder,
     replaceAllNotes,
   }
 })

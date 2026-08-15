@@ -51,7 +51,10 @@ function normalizeAttachments(list) {
 }
 
 export function noteToJson(note) {
-  // Match Android's double-serialized format for compatibility
+  // Pretty-print with 2-space indentation to match Android's human-readable
+  // multi-line JSON layout (Gson's default). The double-serialized fields
+  // (labels/body/spans/...) stay inline strings — exactly like Android — so only
+  // top-level whitespace changes; cross-client parsing is unaffected.
   return JSON.stringify({
     id: note.id,
     type: note.type,
@@ -72,7 +75,10 @@ export function noteToJson(note) {
     viewMode: note.viewMode || 'EDIT',
     isPinnedToStatus: note.isPinnedToStatus || false,
     locked: note.locked || false,
-  })
+    // User folder (Android v1.2.4). Value is the folder NAME itself (string);
+    // "" means uncategorized. Synced per-note, never via a folders.json.
+    folderId: note.folderId || '',
+  }, null, 2)
 }
 
 export function jsonToNote(json) {
@@ -97,6 +103,8 @@ export function jsonToNote(json) {
     viewMode: obj.viewMode || 'EDIT',
     isPinnedToStatus: obj.isPinnedToStatus || false,
     locked: obj.locked || false,
+    // Missing on legacy notes (pre v1.2.4) — default to "" (uncategorized).
+    folderId: obj.folderId || '',
   }
 }
 
@@ -143,6 +151,7 @@ export function createEmptyNote(id) {
     viewMode: 'EDIT',
     isPinnedToStatus: false,
     locked: false,
+    folderId: '',
   }
 }
 
