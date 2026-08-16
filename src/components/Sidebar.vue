@@ -73,7 +73,7 @@
             </button>
           </div>
           <LabelItem
-            v-for="label in allAvailableLabels"
+            v-for="label in visibleLabels"
             :key="label"
             :label="label"
             :count="getLabelCount(label)"
@@ -81,6 +81,14 @@
             @select="selectLabel"
             @contextmenu="onLabelContextMenu"
           />
+          <button
+            v-if="allAvailableLabels.length > 5"
+            @click="showAllLabels = !showAllLabels"
+            class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg cursor-pointer transition-colors w-full"
+          >
+            <svg class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': showAllLabels }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            <span>{{ showAllLabels ? '收起标签' : `更多标签 (${allAvailableLabels.length - 5})` }}</span>
+          </button>
         </div>
       </div>
 
@@ -138,6 +146,12 @@ const hiddenLabelsToShow = computed(() => {
 const allAvailableLabels = computed(() => {
   const set = new Set([...notesStore.allLabels, ...(settingsStore.createdLabels || [])])
   return Array.from(set).sort()
+})
+
+// Show at most 5 labels; "更多标签" reveals the rest
+const showAllLabels = ref(false)
+const visibleLabels = computed(() => {
+  return showAllLabels.value ? allAvailableLabels.value : allAvailableLabels.value.slice(0, 5)
 })
 
 function selectFolder(folder) {

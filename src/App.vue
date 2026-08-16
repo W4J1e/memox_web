@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="min-h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden relative">
     <PinLock v-if="lockStore.isLocked" />
     <template v-else>
       <router-view />

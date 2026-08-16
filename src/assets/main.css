@@ -4,18 +4,21 @@
 
 @layer base {
   :root {
-    --c-canvas: 248 250 252;
-    --c-surface: 255 255 255;
-    --c-raised: 255 255 255;
-    --c-sunken: 241 245 249;
-    --c-line: 226 232 240;
-    --c-ink: 15 23 42;
-    --c-ink-muted: 71 85 105;
-    --c-ink-soft: 100 116 139;
-    --c-ink-faint: 148 163 184;
-    --c-accent: 99 102 241;
-    --c-accent-hover: 79 70 229;
-    --c-accent-ring: 99 102 241;
+    /* Neutral backgrounds — 豆沙绿只用于按钮/选中态/badge */
+    --c-canvas: 248 250 252;       /* #F8FAFC 浅灰背景 */
+    --c-surface: 255 255 255;      /* #FFFFFF 卡片/面板表面 */
+    --c-raised: 255 255 255;       /* #FFFFFF 浮起元素 */
+    --c-sunken: 241 245 249;       /* #F1F5F9 嵌入/输入区 */
+    --c-line: 226 232 240;         /* #E2E8F0 分割线 */
+    --c-ink: 15 23 42;             /* #0F172A 主文字 */
+    --c-ink-muted: 71 85 105;      /* #475569 次要文字 */
+    --c-ink-soft: 100 116 139;     /* #64748B 辅助文字 */
+    --c-ink-faint: 148 163 184;    /* #94A3B8 弱化文字 */
+    /* 豆沙绿强调色系 (用于按钮、选中态、badge) */
+    --c-accent: 56 142 60;         /* #388E3C 豆沙绿主色 */
+    --c-accent-hover: 46 125 50;    /* #2E7D32 悬停态深绿 */
+    --c-accent-ring: 56 142 60;    /* #388E3C 焦点环 */
+    --c-accent-light: 232 245 233;  /* #E8F5E9 极淡绿(选中态背景) */
     --c-on-accent: 255 255 255;
     --c-danger: 239 68 68;
     --c-warn: 245 158 11;
@@ -50,6 +53,22 @@
     --sh-xl: 0 20px 25px -5px rgb(0 0 0 / 0.5);
     --sh-highlight: inset 0 1px 0 rgb(255 255 255 / 0.05);
   }
+
+  /* Custom color extensions for layered UI */
+  .bg-gray-825 { background-color: rgb(32 38 55); }
+  .dark\:bg-gray-825 { background-color: rgb(32 38 55); }
+  .dark\:bg-gray-825\/90 { background-color: rgb(32 38 55 / 0.9); }
+  .bg-gray-750 { background-color: rgb(37 42 57); }
+  .dark\:bg-gray-750 { background-color: rgb(37 42 57); }
+
+  /* 绿豆沙配色扩展 */
+  .bg-dou-surface { background-color: rgb(255 255 255); }
+  .bg-dou-sunken { background-color: rgb(241 245 249); }
+  .bg-dou-sidebar { background-color: rgb(248 250 252); }
+  .dark .bg-dou-sidebar { background-color: rgb(17 24 39); } /* 深色模式与笔记区一致 */
+  .border-dou-line { border-color: rgb(226 232 240); }
+  .text-dou-ink { color: rgb(15 23 42); }
+  .text-dou-muted { color: rgb(70 100 72); }
 
   body {
     @apply text-gray-900 dark:text-gray-100 antialiased;
@@ -138,4 +157,68 @@
 }
 .safe-top {
   padding-top: env(safe-area-inset-top, 0);
+}
+
+/* Thin, subtle scrollbars for notes area — works in Chrome/Edge/Safari + Firefox */
+.notes-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225 / 0.4) transparent;
+}
+.dark .notes-scroll {
+  scrollbar-color: rgb(75 85 99 / 0.35) transparent;
+}
+.notes-scroll:hover {
+  scrollbar-color: rgb(203 213 225 / 0.7) transparent;
+}
+.dark .notes-scroll:hover {
+  scrollbar-color: rgb(75 85 99 / 0.55) transparent;
+}
+.notes-scroll::-webkit-scrollbar { width: 5px; }
+.notes-scroll::-webkit-scrollbar-track { background: transparent; }
+.notes-scroll::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225 / 0.4);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.dark .notes-scroll::-webkit-scrollbar-thumb {
+  background-color: rgb(75 85 99 / 0.35);
+}
+.notes-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225 / 0.7);
+}
+.dark .notes-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(75 85 99 / 0.55);
+}
+
+/* Editor area thin scrollbar (Chrome/Edge/Safari) */
+.editor-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225 / 0.35) transparent;
+}
+.dark .editor-scroll {
+  scrollbar-color: rgb(75 85 99 / 0.3) transparent;
+}
+.editor-scroll:hover {
+  scrollbar-color: rgb(203 213 225 / 0.6) transparent;
+}
+.dark .editor-scroll:hover {
+  scrollbar-color: rgb(75 85 99 / 0.5) transparent;
+}
+.editor-scroll::-webkit-scrollbar { width: 5px; }
+.editor-scroll::-webkit-scrollbar-track { background: transparent; }
+.editor-scroll::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225 / 0.35);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.dark .editor-scroll::-webkit-scrollbar-thumb {
+  background-color: rgb(75 85 99 / 0.3);
+}
+.editor-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225 / 0.6);
+}
+.dark .editor-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(75 85 99 / 0.5);
 }

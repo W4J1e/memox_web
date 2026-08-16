@@ -9,7 +9,7 @@
 
     <!-- Left Sidebar -->
     <aside
-      class="h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 z-50"
+      class="h-full bg-dou-sidebar border-r border-gray-200/70 dark:border-gray-700/70 flex flex-col transition-all duration-300 z-50"
       :class="[
         isMobile
           ? (sidebarOpen ? 'fixed left-0 top-0 w-64 translate-x-0' : 'fixed left-0 top-0 w-64 -translate-x-full')
@@ -38,7 +38,7 @@
       <div class="p-3 shrink-0">
         <button
           @click="createNewNote('NOTE')"
-          class="w-full flex items-center gap-2 px-3 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl transition-colors font-medium"
+          class="w-full flex items-center gap-2 px-3 py-2.5 bg-accent hover:bg-accent-hover text-white rounded-xl shadow-sm transition-colors font-medium"
           :class="sidebarCollapsed ? 'justify-center' : 'justify-start'"
         >
           <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -119,7 +119,7 @@
             </button>
           </div>
           <LabelItem
-            v-for="label in allAvailableLabels"
+            v-for="label in visibleLabels"
             :key="label"
             :label="label"
             :count="getLabelCount(label)"
@@ -127,6 +127,14 @@
             @select="selectLabel"
             @contextmenu="onLabelContextMenu"
           />
+          <button
+            v-if="allAvailableLabels.length > 5"
+            @click="showAllLabels = !showAllLabels"
+            class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg cursor-pointer transition-colors w-full"
+          >
+            <svg class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': showAllLabels }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            <span>{{ showAllLabels ? '收起标签' : `更多标签 (${allAvailableLabels.length - 5})` }}</span>
+          </button>
         </div>
       </div>
 
@@ -140,7 +148,7 @@
           </div>
           <div class="w-full h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
             <div
-              class="h-full bg-green-500 rounded-full transition-all duration-500"
+              class="h-full bg-accent rounded-full transition-all duration-500"
               :style="{ width: storagePercent + '%' }"
             ></div>
           </div>
@@ -177,10 +185,10 @@
     <!-- Middle: Notes list (hidden on mobile when a note is selected) -->
     <section
       v-show="!isMobile || !selectedNote"
-      class="w-full md:w-80 lg:w-96 shrink-0 flex flex-col min-w-0 border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+      class="w-full md:w-80 lg:w-96 shrink-0 flex flex-col min-w-0 border-r border-gray-200/80 dark:border-gray-700/60 bg-white dark:bg-gray-800/95 backdrop-blur-sm"
     >
       <!-- List header -->
-      <div class="p-4 border-b border-gray-200 dark:border-gray-700 shrink-0">
+      <div class="p-4 shrink-0">
         <div class="flex items-center gap-2 mb-3">
           <button
             v-if="isMobile"
@@ -218,6 +226,7 @@
           </template>
           <template v-else>
             <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">{{ currentViewTitle }}</h2>
+            <span v-if="isSearching" class="text-xs font-medium text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">{{ displayedNotes.length }} 条结果</span>
             <DynamicIsland />
             <div class="ml-auto flex items-center gap-1">
               <button
@@ -244,27 +253,30 @@
             </div>
           </template>
         </div>
-        <!-- Search bar -->
-        <div class="relative">
-          <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            v-model="notesStore.searchQuery"
-            type="text"
-            placeholder="搜索笔记..."
-            class="w-full pl-9 pr-8 py-2 text-sm bg-gray-100 dark:bg-gray-700 rounded-full border-0 focus:ring-2 focus:ring-green-500 outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400"
-          />
-          <button v-if="notesStore.searchQuery" @click="notesStore.searchQuery = ''" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        <!-- Search bar (card style) -->
+        <div class="relative group">
+          <div class="flex items-center gap-2 px-3 py-2 bg-white/90 dark:bg-gray-750 border border-gray-200/60 rounded-full shadow-sm hover:shadow-md transition-shadow duration-200 focus-within:ring-2 focus-within:ring-green-500/25 focus-within:border-green-400/60 dark:focus-within:border-green-500/60">
+            <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-          </button>
+            <input
+              ref="searchInputRef"
+              v-model="notesStore.searchQuery"
+              type="text"
+              placeholder="搜索笔记..."
+              class="flex-1 bg-transparent border-0 outline-none text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 py-0.5 min-w-0"
+              @keydown.esc="notesStore.searchQuery = ''"
+            />
+            <kbd class="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-600 rounded border border-gray-200 dark:border-gray-500 pointer-events-none group-focus-within:hidden" :class="{ '!hidden': notesStore.searchQuery }">⌘ K</kbd>
+            <button v-if="notesStore.searchQuery" @click="notesStore.searchQuery = ''" class="p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors shrink-0">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
         </div>
       </div>
 
       <!-- Notes list -->
-      <div class="flex-1 overflow-y-auto">
+      <div class="flex-1 overflow-y-auto notes-scroll">
         <template v-if="notesStore.currentFolder === 'DELETED'">
           <div v-if="notesStore.deletedNotes.length === 0" class="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500 p-8">
             <svg class="w-16 h-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -272,7 +284,7 @@
             </svg>
             <p class="text-lg">回收站为空</p>
           </div>
-          <div v-else class="divide-y divide-gray-100 dark:divide-gray-700">
+          <div v-else class="divide-y divide-gray-100/60 dark:divide-gray-700/40">
             <div
               v-for="note in notesStore.deletedNotes"
               :key="note.id"
@@ -294,8 +306,8 @@
             <svg class="w-20 h-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <p class="text-lg mb-2">暂无笔记</p>
-            <p class="text-sm">点击"新建笔记"开始记录</p>
+            <p class="text-lg mb-2">{{ isSearching ? `没有找到匹配「${notesStore.searchQuery}」的笔记` : '暂无笔记' }}</p>
+            <p class="text-sm">{{ isSearching ? '试试其他关键词' : '点击"新建笔记"开始记录' }}</p>
           </div>
 
           <div v-if="notesStore.loading" class="flex items-center justify-center h-32">
@@ -305,17 +317,20 @@
           </div>
 
           <!-- List view -->
-          <div v-if="viewMode === 'list' && !notesStore.loading && displayedNotes.length > 0" class="divide-y divide-gray-100 dark:divide-gray-700">
+          <div v-if="viewMode === 'list' && !notesStore.loading && displayedNotes.length > 0" :class="isSearching ? 'p-3 space-y-2' : 'divide-y divide-gray-100/60 dark:divide-gray-700/40'">
             <div
               v-for="note in displayedNotes"
               :key="note.id"
-              class="px-3 py-3 cursor-pointer transition-colors border-l-2 flex gap-3"
+              class="cursor-pointer transition-all duration-150 rounded-xl"
               :class="[
+                isSearching
+                  ? 'bg-white dark:bg-gray-750 border border-gray-100 dark:border-gray-700/50 shadow-sm hover:shadow-md p-3.5 gap-3'
+                  : 'px-3 py-3 border-l-2 flex gap-3',
                 selectedIds.has(note.id)
-                  ? 'bg-green-100 dark:bg-green-900/40 border-l-green-500'
+                  ? (isSearching ? 'ring-2 ring-green-500' : 'bg-green-100 dark:bg-green-900/40 border-l-green-500')
                   : selectedNote?.id === note.id
-                    ? 'bg-green-50 dark:bg-green-900/20 border-l-green-500'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border-l-transparent'
+                    ? (isSearching ? 'ring-2 ring-green-400' : 'bg-green-50 dark:bg-green-900/20 border-l-green-500')
+                    : (isSearching ? 'hover:shadow-md hover:border-gray-200 dark:hover:border-gray-600' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border-l-transparent')
               ]"
               @click="onNoteCardClick(note)"
               @mousedown="startLongPress(note)"
@@ -328,23 +343,27 @@
             >
               <div class="flex-1 min-w-0 flex flex-col">
                 <div class="flex items-center gap-1 mb-1">
-                  <span v-if="note.pinned" class="text-xs">📌</span>
-                  <span v-if="note.locked" class="text-xs">🔒</span>
-                  <span class="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{{ note.title || '(无标题)' }}</span>
+                  <span v-if="note.pinned" class="text-xs shrink-0">📌</span>
+                  <span v-if="note.locked" class="text-xs shrink-0">🔒</span>
+                  <span class="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate" v-html="isSearching ? highlightText(note.title || '(无标题)', notesStore.searchQuery) : (note.title || '(无标题)')"></span>
                 </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-1.5">
-                  {{ note.locked ? '🔒 内容已锁定' : getNotePreview(note).substring(0, 100) }}
-                </div>
-                <div class="flex items-center gap-2 mt-auto">
+                <div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 mb-1.5" v-html="isSearching && !note.locked ? highlightText(getNotePreview(note).substring(0, 120), notesStore.searchQuery) : (note.locked ? '🔒 内容已锁定' : getNotePreview(note).substring(0, 100))"></div>
+                <div class="flex items-center gap-2 mt-auto flex-wrap">
+                  <span
+                    v-if="note.folderId"
+                    :key="'folder_' + note.folderId"
+                    class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200/60 dark:border-green-800/40"
+                  >📁 {{ note.folderId }}</span>
                   <span
                     v-for="label in (note.labels || []).slice(0, 2)"
                     :key="label"
-                    class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                    class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
                   >{{ label }}</span>
-                  <span v-if="!note.images || note.images.length === 0 || note.locked" class="text-[10px] text-gray-400 ml-auto">{{ formatDate(note.timestamp) }}</span>
+                  <span v-if="(note.labels || []).length > 2" class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">+{{ note.labels.length - 2 }}</span>
+                  <span class="text-[10px] text-gray-400 ml-auto tabular-nums">{{ formatDate(note.timestamp) }}</span>
                 </div>
               </div>
-              <div v-if="!note.locked && note.images && note.images.length > 0" class="flex flex-col items-end shrink-0 w-20">
+              <div v-if="!note.locked && !isSearching && note.images && note.images.length > 0" class="flex flex-col items-end shrink-0 w-20">
                 <div class="w-20 h-20 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-700">
                   <img
                     v-if="getListThumbnail(note.id)"
@@ -388,7 +407,7 @@
     <!-- Right: Note preview/editor (visible on mobile only when a note is selected) -->
     <section
       v-show="!isMobile || selectedNote"
-      class="flex-1 flex-col min-w-0 bg-white dark:bg-gray-800"
+      class="flex-1 flex-col min-w-0 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm"
       :class="isMobile ? 'flex' : 'hidden md:flex'"
     >
       <template v-if="selectedNote">
@@ -425,7 +444,19 @@
             <button @click="triggerImageUpload" class="fmt-btn" title="插入图片" type="button">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
             </button>
+            <button @click="fileInputRef?.click()" class="fmt-btn" title="上传附件" type="button">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+            </button>
+            <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1"></div>
             <input ref="imageInputRef" type="file" accept="image/*" multiple class="hidden" @change="onImageFilesSelected" />
+            <input ref="fileInputRef" type="file" class="hidden" @change="onFileSelected" />
+            <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+            <button @click="execUndo" class="fmt-btn" title="撤销 (Ctrl+Z)" type="button">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a5 5 0 015 5v2M3 10l4-4m-4 4l4 4" /></svg>
+            </button>
+            <button @click="execRedo" class="fmt-btn" title="重做 (Ctrl+Y)" type="button">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 10h-10a5 5 0 00-5 5v2M21 10l-4-4m4 4l-4 4" /></svg>
+            </button>
             <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1"></div>
             <button @click="execFormat('removeFormat')" class="fmt-btn" title="清除格式" type="button">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -447,7 +478,7 @@
           </div>
 
           <!-- Scrollable edit area -->
-          <div class="flex-1 overflow-y-auto">
+          <div class="flex-1 overflow-y-auto editor-scroll">
             <div class="max-w-3xl mx-auto px-6 py-4">
               <input
                 v-model="editingTitle"
@@ -730,6 +761,8 @@ const showLinkDlg = ref(false)
 const linkUrl = ref('')
 const linkInputRef = ref(null)
 const imageInputRef = ref(null)
+const fileInputRef = ref(null)
+const searchInputRef = ref(null)
 let savedSelection = null
 let previewSaveTimer = null
 
@@ -765,6 +798,17 @@ const displayedNotes = computed(() => {
   }
   return notes
 })
+
+// ---- Search keyword highlighting ----
+// Wraps occurrences of the search query in <mark> tags for visual emphasis.
+function highlightText(text, query) {
+  if (!query || !text) return text || ''
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`(${escaped})`, 'gi')
+  return text.replace(regex, '<mark class="bg-yellow-200/70 dark:bg-yellow-500/30 text-gray-900 dark:text-gray-100 rounded px-0.5 font-medium">$1</mark>')
+}
+
+const isSearching = computed(() => !!notesStore.searchQuery?.trim())
 
 function selectNote(note) {
   const prevId = selectedNote.value?.id
@@ -1039,6 +1083,12 @@ const hiddenLabelsToShow = computed(() => {
 const allAvailableLabels = computed(() => {
   const set = new Set([...notesStore.allLabels, ...(settingsStore.createdLabels || [])])
   return Array.from(set).sort()
+})
+
+// Show at most 5 labels in sidebar; "更多标签" reveals the rest
+const showAllLabels = ref(false)
+const visibleLabels = computed(() => {
+  return showAllLabels.value ? allAvailableLabels.value : allAvailableLabels.value.slice(0, 5)
 })
 
 async function toggleLabelVisibility(label) {
@@ -1390,6 +1440,7 @@ function resolveInlineImages() {
   })
 }
 
+
 function onPreviewEditorInput() {
   onPreviewInput()
 }
@@ -1404,6 +1455,7 @@ function onPreviewEditorClick(e) {
     if (src) openImage(src)
   }
 }
+
 
 // Right-click inside the editor. Two cases:
 //   - on an inline image: 查看 / 复制 / 剪切 / 删除
@@ -1851,6 +1903,20 @@ function flushPreviewSave() {
   settingsStore.scheduleAutoSync()
 }
 
+function execUndo() {
+  const editor = previewEditorRef.value
+  if (!editor) return
+  editor.focus()
+  document.execCommand('undo', false, null)
+}
+
+function execRedo() {
+  const editor = previewEditorRef.value
+  if (!editor) return
+  editor.focus()
+  document.execCommand('redo', false, null)
+}
+
 function execFormat(command) {
   if (command === 'monospace') {
     toggleMonospaceFormat()
@@ -2027,6 +2093,30 @@ function countInlineImagesBeforeCaret(editor) {
   return holder.querySelectorAll('img.inline-image').length
 }
 
+async function onFileSelected(event) {
+  const files = event.target.files
+  if (!files || files.length === 0 || !selectedNote.value) return
+  for (const file of files) {
+    const fileName = `${Date.now()}_${file.name}`
+    await putAttachment(fileName, file)
+    if (!selectedNote.value.files) selectedNote.value.files = []
+    const entry = {
+      localName: fileName,
+      originalName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+    }
+    selectedNote.value.files.push(entry)
+    // Update preview list immediately
+    previewFileUrls.value.push({
+      name: file.name,
+      url: URL.createObjectURL(file),
+    })
+    createdPreviewUrls.add(previewFileUrls.value[previewFileUrls.value.length - 1].url)
+    onPreviewInput()
+  }
+  if (fileInputRef.value) fileInputRef.value.value = ''
+}
+
 async function onImageFilesSelected(event) {
   const files = event.target.files
   if (!files || files.length === 0) return
@@ -2122,6 +2212,16 @@ function normalizeSpansForCompare(spans, body) {
 
 onMounted(() => {
   loadStorageQuota()
+  // Global Ctrl+K / Cmd+K to focus search
+  function onGlobalKeydown(e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault()
+      searchInputRef.value?.focus()
+      searchInputRef.value?.select()
+    }
+  }
+  window.addEventListener('keydown', onGlobalKeydown)
+  onUnmounted(() => window.removeEventListener('keydown', onGlobalKeydown))
 })
 </script>
 

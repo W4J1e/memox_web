@@ -54,9 +54,13 @@
     <div class="flex-1"></div>
 
     <!-- Labels -->
-    <div v-if="note.labels && note.labels.length" class="flex flex-wrap gap-1 mt-2">
+    <div v-if="note.folderId || (note.labels && note.labels.length)" class="flex flex-wrap gap-1 mt-2">
       <span
-        v-for="label in note.labels.slice(0, 2)"
+        v-if="note.folderId"
+        class="px-1.5 py-0.5 text-[10px] rounded bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200/60 dark:border-green-800/40"
+      >📁 {{ note.folderId }}</span>
+      <span
+        v-for="label in (note.labels || []).slice(0, 2)"
         :key="label"
         class="px-1.5 py-0.5 text-[10px] rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
       >

@@ -1,6 +1,6 @@
 <template>
   <div class="flex items-center gap-2 px-3 py-2 hover:bg-sunken dark:hover:bg-sunken rounded-lg cursor-pointer transition-colors group" :class="{ 'bg-accent/10 dark:bg-accent/20': active }" @click="$emit('select', label)" @contextmenu.prevent="$emit('contextmenu', $event, label)">
-    <span class="w-2 h-2 rounded-full shrink-0" :class="active ? 'bg-accent' : 'bg-accent-hover'"></span>
+    <span class="shrink-0 text-sm font-bold" :class="active ? 'text-accent dark:text-accent' : 'text-accent-hover dark:text-accent-hover/70'">#</span>
     <span class="text-sm flex-1 truncate" :class="active ? 'text-accent dark:text-accent font-medium' : 'text-ink-soft dark:text-ink-soft'">
       {{ label }}
     </span>

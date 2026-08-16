@@ -289,7 +289,7 @@ function elementToPlainText(element) {
       result += '\uFFFC'
       return
     }
-    
+
     if (isBlock && result.length > 0 && !result.endsWith('\n')) {
       result += '\n'
     }
