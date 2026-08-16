@@ -138,8 +138,15 @@ export const useNotesStore = defineStore('notes', () => {
       note.items = [createEmptyListItem()]
     }
     await putNote(note)
-    notes.value.push({ ...note })
-    return note
+    // IMPORTANT: push the SAME object reference that we return, so the caller's
+    // selectedNote and the element stored in notes.value are identical. If we
+    // pushed a spread copy (the old behaviour), updateNoteLabels() would mutate
+    // the copy in the array while the editor kept showing the original's stale
+    // labels — new-note tags appeared to "not stick" and a second pick overwrote
+    // the first. Returning the stored reference fixes that.
+    const stored = { ...note }
+    notes.value.push(stored)
+    return stored
   }
 
   async function deleteNoteFromFolder(id) {

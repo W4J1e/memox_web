@@ -53,17 +53,17 @@
         <NavItem
           icon="notebook"
           :label="sidebarCollapsed ? '' : '全部笔记'"
-          :active="notesStore.currentFolder === 'NOTES' && !notesStore.currentLabel"
+          :active="!recentView && notesStore.currentFolder === 'NOTES' && !notesStore.currentLabel"
           :count="notesStore.notes.filter(n => n.folder === 'NOTES').length"
           :collapsed="sidebarCollapsed"
           @click="selectAllNotes"
         />
         <NavItem
           icon="clock"
-          :label="sidebarCollapsed ? '' : '最近使用'"
-          :active="false"
+          :label="sidebarCollapsed ? '' : '最近编辑'"
+          :active="recentView"
           :collapsed="sidebarCollapsed"
-          @click="selectAllNotes"
+          @click="selectRecentEdited"
         />
         <NavItem
           icon="archive"
@@ -740,6 +740,9 @@ window.addEventListener('resize', () => {
 })
 const viewMode = ref('list')
 const sortOrder = ref('desc')
+// When true, the notes list shows recently-EDITED notes (sorted by modifiedTimestamp desc)
+// instead of the default "all notes" (creation-time desc) view.
+const recentView = ref(false)
 const showPinDialog = ref(false)
 const pinInput = ref('')
 const pinError = ref(false)
@@ -775,6 +778,7 @@ const storagePercent = computed(() => {
 })
 
 const currentViewTitle = computed(() => {
+  if (recentView.value) return '最近编辑'
   if (notesStore.currentUserFolder !== null) return `文件夹: ${notesStore.currentUserFolder || '未分类'}`
   if (notesStore.currentFolder === 'DELETED') return '回收站'
   if (notesStore.currentFolder === 'ARCHIVED') return '归档'
@@ -794,6 +798,10 @@ const isSelectedNoteUnlocked = computed(() => {
 
 const displayedNotes = computed(() => {
   const notes = notesStore.activeNotes
+  if (recentView.value) {
+    // Recently edited: sort by last-modified time, newest first.
+    return [...notes].sort((a, b) => (b.modifiedTimestamp || 0) - (a.modifiedTimestamp || 0))
+  }
   if (sortOrder.value === 'asc') {
     return [...notes].sort((a, b) => a.timestamp - b.timestamp)
   }
@@ -989,6 +997,16 @@ function deselectNote() {
 }
 
 function selectAllNotes() {
+  recentView.value = false
+  notesStore.currentFolder = 'NOTES'
+  notesStore.currentLabel = null
+  notesStore.currentUserFolder = null
+  notesStore.searchQuery = ''
+  selectedNote.value = null
+}
+
+function selectRecentEdited() {
+  recentView.value = true
   notesStore.currentFolder = 'NOTES'
   notesStore.currentLabel = null
   notesStore.currentUserFolder = null
@@ -997,6 +1015,7 @@ function selectAllNotes() {
 }
 
 function selectFolder(folder) {
+  recentView.value = false
   notesStore.currentFolder = folder
   notesStore.currentLabel = null
   notesStore.currentUserFolder = null
@@ -1005,6 +1024,7 @@ function selectFolder(folder) {
 }
 
 function selectLabel(label) {
+  recentView.value = false
   notesStore.currentLabel = notesStore.currentLabel === label ? null : label
   notesStore.currentFolder = 'NOTES'
   notesStore.currentUserFolder = null
@@ -1120,6 +1140,7 @@ function getFolderCount(name) {
 }
 
 function selectUserFolder(name) {
+  recentView.value = false
   notesStore.currentUserFolder = name
   notesStore.currentFolder = 'NOTES'
   notesStore.currentLabel = null
