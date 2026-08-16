@@ -167,10 +167,15 @@ export class WebDavClient {
       'memoX/attachments/audios/',
       'memoX/attachments/files/',
     ]
-    // Fire all MKCOLs concurrently. Each one still returns 405 when the directory
-    // already exists (treated as success by createDirectory), but running them in
-    // parallel turns six sequential ~3s round-trips through the proxy into one.
-    await Promise.all(dirs.map(d => this.createDirectory(d).catch(() => {})))
+    // Probe existence first (cheap HEAD), then MKCOL only the directories that are
+    // actually missing. This avoids the 405 "already exists" storm (and the upstream
+    // 502 on the two attachment subdirs) that blind MKCOL used to log on every mount,
+    // while still creating the directories for a brand-new account.
+    const existsFlags = await Promise.all(
+      dirs.map(d => this.exists(d).catch(() => false))
+    )
+    const missing = dirs.filter((_, i) => !existsFlags[i])
+    await Promise.all(missing.map(d => this.createDirectory(d).catch(() => {})))
   }
 
   async upload(path, data) {
