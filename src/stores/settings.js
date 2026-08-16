@@ -282,7 +282,7 @@ export const useSettingsStore = defineStore('settings', () => {
       // Resolve the file's real location. Search all three indexes (Android may
       // store it under a different subdir than our local guess); if it's missing
       // everywhere, probe the expected path (and the other two dirs) with a
-      // cache-busted HEAD so a file the listing somehow missed still downloads
+      // HEAD probe so a file the listing somehow missed still downloads
       // instead of being permanently skipped.
       let located = findRemoteAttachment(index, fn)
       let key, dir, remoteSize

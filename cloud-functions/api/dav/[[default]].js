@@ -153,17 +153,14 @@ app.use(async (req, res) => {
     })
 
     // Immutable attachments (images/audios/files) are content-addressed by UUID
-    // and never change, so cache them at the edge to avoid re-proxying on every
-    // sync/view. This dramatically cuts Cloud Function invocations and latency,
-    // and means a second view of the same image never hits the 504 risk again.
+    // and never change, BUT we deliberately do NOT cache them at the edge. Edge
+    // caching of partial (206) bodies or truncated streams gets served to later
+    // requests and corrupts reassembled images ("top half renders, bottom half
+    // gray"), and a shared edge cache risks cross-user leakage. no-store keeps
+    // every byte fresh from the origin; the client already skips unchanged
+    // attachments by size, so caching buys no real speed. Accept-Ranges lets the
+    // client resume large downloads.
     if ((method === 'GET' || method === 'HEAD') && /\/attachments\//.test(webdavPath)) {
-      // Never cache attachment responses. Edge caching of 206/partial bodies (or a
-      // truncated stream) gets served to later range requests and corrupts reassembled
-      // images (classic "top half renders, bottom half gray"). The client already skips
-      // unchanged attachments by size, so caching here buys no real speed and only
-    // causes corruption. no-store keeps every byte fresh from the origin, and the
-    // client's per-request /.cb/<token>/ path fragment forces a guaranteed CDN
-    // MISS even where no manual purge exists (EdgeOne Makers).
       res.setHeader('Cache-Control', 'no-store')
       res.setHeader('Accept-Ranges', 'bytes')
     }

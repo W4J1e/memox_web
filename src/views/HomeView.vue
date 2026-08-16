@@ -706,6 +706,7 @@ import { useClipboard } from '../composables/clipboard'
 import DynamicIsland from '../components/DynamicIsland.vue'
 import { formatDate, getNotePreview, sanitizeBody, getImageFileName, createEmptyListItem, guessMimeType } from '../utils/note-parser'
 import { getAttachment, putAttachment, putSetting } from '../utils/storage'
+import { compressImageFile, withNewExt } from '../utils/image-compress'
 import { spansToHtml, htmlToSpans, getPlainTextFromHtml } from '../utils/rich-text'
 
 const notesStore = useNotesStore()
@@ -2097,19 +2098,24 @@ async function onFileSelected(event) {
   const files = event.target.files
   if (!files || files.length === 0 || !selectedNote.value) return
   for (const file of files) {
-    const fileName = `${Date.now()}_${file.name}`
-    await putAttachment(fileName, file)
+    const isImage = file.type && file.type.startsWith('image/')
+    // Compress images upstream; non-images pass through untouched.
+    const comp = isImage
+      ? await compressImageFile(file)
+      : { blob: file, ext: '', mime: file.type || 'application/octet-stream' }
+    const fileName = `${Date.now()}_${withNewExt(file.name, comp.ext)}`
+    await putAttachment(fileName, comp.blob)
     if (!selectedNote.value.files) selectedNote.value.files = []
     const entry = {
       localName: fileName,
       originalName: file.name,
-      mimeType: file.type || 'application/octet-stream',
+      mimeType: comp.mime,
     }
     selectedNote.value.files.push(entry)
     // Update preview list immediately
     previewFileUrls.value.push({
       name: file.name,
-      url: URL.createObjectURL(file),
+      url: URL.createObjectURL(comp.blob),
     })
     createdPreviewUrls.add(previewFileUrls.value[previewFileUrls.value.length - 1].url)
     onPreviewInput()
@@ -2131,8 +2137,11 @@ async function insertImageFiles(files) {
   const editor = previewEditorRef.value
   for (const file of files) {
     if (!file.type || !file.type.startsWith('image/')) continue
-    const fileName = `${Date.now()}_${file.name}`
-    await putAttachment(fileName, file)
+    // Compress upstream (only >1MB images are touched; the worker keeps the original
+    // on any failure). May return a new extension/mime when the format changed.
+    const comp = await compressImageFile(file)
+    const fileName = `${Date.now()}_${withNewExt(file.name, comp.ext)}`
+    await putAttachment(fileName, comp.blob)
     if (!selectedNote.value.images) selectedNote.value.images = []
     // Android's Converters.jsonToFiles requires localName / originalName / mimeType.
     // mimeType uses getString() (non-optional) — a missing field throws and the whole
@@ -2140,7 +2149,7 @@ async function insertImageFiles(files) {
     const imageEntry = {
       localName: fileName,
       originalName: file.name,
-      mimeType: file.type || guessMimeType(fileName),
+      mimeType: comp.mime,
     }
     // Insert at the same index the new \uFFFC will occupy in the body.
     const insertIndex = editor ? countInlineImagesBeforeCaret(editor) : selectedNote.value.images.length
@@ -2154,7 +2163,7 @@ async function insertImageFiles(files) {
       img.className = 'inline-image'
       img.setAttribute('data-fname', fileName)
       img.setAttribute('contenteditable', 'false')
-      const url = URL.createObjectURL(file)
+      const url = URL.createObjectURL(comp.blob)
       img.src = url
       createdPreviewUrls.add(url)
 
