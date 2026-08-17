@@ -1678,6 +1678,17 @@ function imagesInRange(range) {
 
 // Capture the current selection (text + any inline images inside it) into the
 // clipboard without altering the note.
+// Push the current text selection to the OS clipboard so it can be pasted into
+// other apps. Our internal clipboard (setClipboard) only serves rich in-app
+// paste, so without this a Ctrl+C/Ctrl+X left the OS clipboard empty and
+// external paste silently failed. Uses the legacy synchronous execCommand on
+// purpose: it runs inside the Ctrl+C/V keydown gesture, so the user activation
+// is still valid (navigator.clipboard.write would need the activation kept alive
+// across an await). It copies the live selection as text + html.
+function copySelectionToOsClipboard() {
+  try { document.execCommand('copy') } catch {}
+}
+
 async function doCopy() {
   const editor = previewEditorRef.value
   const sel = window.getSelection()
@@ -1685,6 +1696,9 @@ async function doCopy() {
   const range = sel.getRangeAt(0)
   if (!editor.contains(range.commonAncestorContainer)) return
   if (sel.isCollapsed) return
+
+  // Mirror to the OS clipboard FIRST, while the selection is still intact.
+  copySelectionToOsClipboard()
 
   const tmp = document.createElement('div')
   tmp.appendChild(range.cloneContents())
@@ -1723,6 +1737,9 @@ async function doCut() {
   if (removed.size && selectedNote.value.images) {
     selectedNote.value.images = selectedNote.value.images.filter(img => !removed.has(getImageFileName(img)))
   }
+  // Mirror to the OS clipboard BEFORE we remove the selection, so the cut text
+  // can still be pasted into other apps.
+  copySelectionToOsClipboard()
   range.deleteContents()
   // Collapse the caret where the removed content used to be.
   try {
@@ -1744,6 +1761,11 @@ async function copyImage(img) {
   let blob = null
   try { blob = await getAttachment(fname) } catch {}
   setClipboard({ html: img.outerHTML, text: '', images: [{ fname, entry: entry || { localName: fname }, blob }] })
+  // Best-effort: also place the image on the OS clipboard so it can be pasted into
+  // other apps. (Text copy goes through doCopy/doCut via execCommand.)
+  if (blob && blob.type && blob.type.startsWith('image/') && navigator.clipboard && window.ClipboardItem) {
+    try { await navigator.clipboard.write(new ClipboardItem({ [blob.type]: blob })) } catch {}
+  }
 }
 
 // Cut a single inline image (right-click 剪切): capture then delete.
