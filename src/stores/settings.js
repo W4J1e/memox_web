@@ -21,6 +21,12 @@ export const useSettingsStore = defineStore('settings', () => {
   const syncStatus = ref('idle')
   const syncMessage = ref('')
   const lastSyncTime = ref(0)
+  // Bumped every time a missing attachment finishes downloading into IndexedDB.
+  // Views that render attachment-derived content (list thumbnails, etc.) watch
+  // this to re-resolve blobs that were not available when the note first
+  // appeared — otherwise a freshly synced note's image stays blank until a
+  // manual refresh/re-enter.
+  const attachmentsVersion = ref(0)
   const tombstones = ref([])
   const hiddenLabels = ref([])
   // Local-only user-folder directory (Android v1.2.4, Plan B). Holds presentation
@@ -347,6 +353,9 @@ export const useSettingsStore = defineStore('settings', () => {
         if (blob && blob.size > 0 && blob.size === remoteSize && !(await isErrorBody(blob))) {
           await putAttachment(fn, blob)
           downloaded++
+          // Notify views (list thumbnails) that a new blob is now available so
+          // they can re-resolve without a manual refresh.
+          attachmentsVersion.value++
         }
       } catch {}
     }
@@ -932,6 +941,7 @@ export const useSettingsStore = defineStore('settings', () => {
     syncStatus,
     syncMessage,
     lastSyncTime,
+    attachmentsVersion,
     tombstones,
     hiddenLabels,
     createdLabels,

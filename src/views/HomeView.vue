@@ -1462,23 +1462,41 @@ function getListThumbnail(noteId) {
   return listThumbnails.value[noteId] || null
 }
 
+// Serialize thumbnail loading: a sync downloading many attachments fires the
+// version watcher repeatedly; run once and re-run only if a newer request
+// arrived while we were busy, so late-arriving blobs still get resolved.
+let loadingListThumbnails = false
+let pendingListThumbnails = false
+
 async function loadListThumbnails() {
-  const notes = displayedNotes.value
-  for (const note of notes) {
-    if (note.locked) continue
-    if (!note.images || note.images.length === 0) continue
-    if (listThumbnails.value[note.id]) continue
-    try {
-      const firstImg = note.images[0]
-      const fn = getImageFileName(firstImg)
-      if (!fn) continue
-      const blob = await getAttachment(fn)
-      if (blob) {
-        const url = URL.createObjectURL(blob)
-        listThumbnails.value = { ...listThumbnails.value, [note.id]: url }
-        createdListThumbnails.add(url)
+  if (loadingListThumbnails) {
+    pendingListThumbnails = true
+    return
+  }
+  loadingListThumbnails = true
+  try {
+    do {
+      pendingListThumbnails = false
+      const notes = displayedNotes.value
+      for (const note of notes) {
+        if (note.locked) continue
+        if (!note.images || note.images.length === 0) continue
+        if (listThumbnails.value[note.id]) continue
+        try {
+          const firstImg = note.images[0]
+          const fn = getImageFileName(firstImg)
+          if (!fn) continue
+          const blob = await getAttachment(fn)
+          if (blob) {
+            const url = URL.createObjectURL(blob)
+            listThumbnails.value = { ...listThumbnails.value, [note.id]: url }
+            createdListThumbnails.add(url)
+          }
+        } catch {}
       }
-    } catch {}
+    } while (pendingListThumbnails)
+  } finally {
+    loadingListThumbnails = false
   }
 }
 
@@ -1549,6 +1567,13 @@ onUnmounted(() => {
 watch(displayedNotes, () => {
   loadListThumbnails()
 }, { immediate: true, deep: false })
+
+// A sync that finished downloading attachments makes new blobs available in
+// IndexedDB. Re-resolve thumbnails that were blank because the note arrived
+// before its images did (previously required a manual refresh / re-enter).
+watch(() => settingsStore.attachmentsVersion, () => {
+  loadListThumbnails()
+})
 
 async function loadStorageQuota() {
   try {

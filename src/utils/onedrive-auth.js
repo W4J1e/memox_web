@@ -1,10 +1,15 @@
 // OneDrive / Microsoft Identity Platform OAuth2 (Authorization Code + PKCE).
 //
-// Reuses the SAME Azure AD application registration as the memoX Android app
-// (Client ID 770514b5-57d6-4cef-9789-bd2a181865d0). That app is a public client
-// with no client_secret, exactly the model a browser SPA uses, so a single
-// registration serves both platforms. The only thing to add in the Azure portal
-// is a "Single-page application" redirect URI pointing at this web app.
+// The Azure AD application is provided at build time via the
+// VITE_ONEDRIVE_CLIENT_ID env var (see .env.example) — there is deliberately NO
+// baked-in default. A Client ID is bound to the redirect URIs registered on the
+// app, so a shared default would only ever work on one deployment origin and
+// fail for everyone else; every deployment must supply its own (the official
+// memoX deployment sets the official app id in the EdgeOne build config).
+//
+// Public client, no client_secret — exactly the model a browser SPA uses.
+// Redirect URIs are registered per deployment origin (bare origin, e.g.
+// https://memox.hin.cool) under "Single-page application" in the Azure portal.
 //
 // Tokens live in localStorage (refresh token especially). A browser SPA has no
 // server-side secret store, so this is the standard — if imperfect — approach.
@@ -13,7 +18,9 @@
 // PKCE verifier + state are kept in sessionStorage: they only need to survive the
 // redirect round-trip in the same tab, and they must NEVER be persisted longer.
 
-const CLIENT_ID = '770514b5-57d6-4cef-9789-bd2a181865d0'
+// Vite statically replaces import.meta.env.* at build time. Empty when the
+// deployment did not configure the env var → sign-in is blocked with a hint.
+const CLIENT_ID = import.meta.env.VITE_ONEDRIVE_CLIENT_ID || ''
 const SCOPES = 'User.Read Files.ReadWrite offline_access'
 const AUTH_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
 const TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
@@ -108,6 +115,10 @@ export async function getOneDriveAccountPhoto() {
  * which App.vue captures and passes to handleOAuthRedirect().
  */
 export async function startOAuthSignIn() {
+  if (!CLIENT_ID) {
+    alert('OneDrive 同步未配置：缺少 VITE_ONEDRIVE_CLIENT_ID 环境变量，请在构建配置中设置后重新部署')
+    return
+  }
   const verifier = generateVerifier()
   const challenge = await generateChallenge(verifier)
   const state = generateState()
