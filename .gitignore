@@ -3,3 +3,4 @@ dist
 .workbuddy
 .DS_Store
 *.local
+vite.config.js.timestamp-*.mjs
