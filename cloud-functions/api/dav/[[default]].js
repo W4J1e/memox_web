@@ -180,9 +180,50 @@ app.use(async (req, res) => {
   }
 })
 
-async function proxyFetch(requestUrl, method, headers, body, redirects) {
+async function proxyFetch(requestUrl, method, headers, body, redirects, attempt = 0) {
   if (redirects > MAX_REDIRECTS) throw new Error('Too many redirects')
-  const resp = await fetch(requestUrl, { method, headers, body, redirect: 'manual' })
+
+  // EdgeOne -> TeraCloud egress is INTERMITTENT: connections randomly time out
+  // with "fetch failed" (verified live — sometimes a request reaches TeraCloud
+  // in ~2s, often it hangs ~11s and throws). WebDAV sync ops are idempotent, so
+  // retrying a failed attempt almost always succeeds on a later try. We bound
+  // each attempt with an abort timer so a hung socket fails fast instead of
+  // blocking the whole sync, then retry with a short backoff.
+  const MAX_RETRIES = 3
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 9000)
+
+  let resp
+  try {
+    resp = await fetch(requestUrl, {
+      method,
+      headers,
+      body,
+      redirect: 'manual',
+      signal: controller.signal,
+    })
+  } catch (err) {
+    clearTimeout(timer)
+    // Network-level failure (DNS/connect/TLS/timeout/abort). Nothing was sent,
+    // so retrying is always safe.
+    if (attempt < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)))
+      return proxyFetch(requestUrl, method, headers, body, redirects, attempt + 1)
+    }
+    throw new Error(`Upstream fetch failed after ${MAX_RETRIES + 1} attempts: ${err.message}`)
+  }
+  clearTimeout(timer)
+
+  // Transient upstream gateway errors (the upstream itself returned 5xx) — retry
+  // only for idempotent WebDAV methods so we never double-apply a non-idempotent op.
+  if ([502, 503, 504].includes(resp.status) &&
+      ['GET', 'HEAD', 'PUT', 'DELETE', 'PROPFIND', 'MKCOL'].includes(method)) {
+    if (attempt < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)))
+      return proxyFetch(requestUrl, method, headers, body, redirects, attempt + 1)
+    }
+  }
+
   if (
     [301, 302, 303, 307, 308].includes(resp.status) &&
     resp.headers.get('location')
@@ -191,7 +232,7 @@ async function proxyFetch(requestUrl, method, headers, body, redirects) {
     if (!loc.startsWith('http')) loc = new URL(loc, requestUrl).toString()
     const newMethod = resp.status === 303 ? 'GET' : method
     const newBody = ['GET', 'HEAD'].includes(newMethod) ? undefined : body
-    return proxyFetch(loc, newMethod, headers, newBody, redirects + 1)
+    return proxyFetch(loc, newMethod, headers, newBody, redirects + 1, attempt)
   }
   return resp
 }

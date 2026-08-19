@@ -84,6 +84,16 @@ export class WebDavClient {
       opts.body = body
     }
     const resp = await fetch(url, opts)
+    // Surface real server failures instead of silently returning a 5xx response
+    // that callers treat as "success" — this is exactly what made sync report
+    // "完成" while uploading nothing. 404/405/409 are expected in normal WebDAV
+    // flow and remain non-throwing.
+    if (resp.status >= 500) {
+      throw new Error(`WebDAV ${method} ${path} 失败：服务端返回 ${resp.status}`)
+    }
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error(`WebDAV 认证失败（${resp.status}），请检查用户名/密码`)
+    }
     return resp
   }
 
