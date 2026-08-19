@@ -11,7 +11,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const webdavUrl = ref('')
   const webdavUsername = ref('')
   const webdavPassword = ref('')
-  const proxyMode = ref('auto') // auto | proxy | direct
+  const proxyMode = ref('direct') // direct | proxy
   // Which backend sync()/upload()/download() talk to. 'webdav' (default) keeps
   // the legacy behaviour; 'onedrive' routes through Microsoft Graph directly.
   const syncProvider = ref('webdav')
@@ -50,7 +50,11 @@ export const useSettingsStore = defineStore('settings', () => {
     webdavUsername.value = await getSetting('webdav_username', '')
     webdavPassword.value = await getSetting('webdav_password', '')
     syncProvider.value = await getSetting('syncProvider', 'webdav')
-    proxyMode.value = await getSetting('proxy_mode', 'auto')
+    // Migrate legacy modes (previously 'auto' ran through the now-removed
+    // cloud-function proxy). Only 'proxy' and 'direct' are valid today; anything
+    // else (including a stored 'auto') falls back to 'direct'.
+    const pm = await getSetting('proxy_mode', 'direct')
+    proxyMode.value = pm === 'proxy' || pm === 'direct' ? pm : 'direct'
     proxyUrl.value = await getSetting('proxy_url', '')
     theme.value = await getSetting('theme', 'system')
     notesView.value = await getSetting('notesView', 'grid')
@@ -69,7 +73,7 @@ export const useSettingsStore = defineStore('settings', () => {
     webdavUrl.value = url
     webdavUsername.value = username
     webdavPassword.value = password
-    proxyMode.value = mode || 'auto'
+    proxyMode.value = mode || 'direct'
     proxyUrl.value = pUrl || ''
     await putSetting('webdav_url', url)
     await putSetting('webdav_username', username)

@@ -1,5 +1,3 @@
-const PROXY_PATH = '/api/dav/'
-
 function normalizeWebdavPath(path) {
   if (!path) return ''
   let p = path.replace(/^\/+/, '').replace(/\/+$/, '')
@@ -16,7 +14,7 @@ export class WebDavClient {
     this.webdavUrl = url.replace(/\/+$/, '')
     this.username = username
     this.password = password
-    this.proxyMode = options.proxyMode || 'auto'
+    this.proxyMode = options.proxyMode || 'direct'
     this.proxyUrl = options.proxyUrl || ''
   }
 
@@ -25,28 +23,14 @@ export class WebDavClient {
   }
 
   _shouldUseProxy() {
-    if (this.proxyMode === 'direct') return false
-    if (this.proxyMode === 'proxy') return true
-    // auto mode: always use proxy (available via Vercel serverless function or dev server)
-    return true
+    // Proxy mode only, and only when a proxy URL is actually configured. Direct
+    // mode — and proxy mode without a URL — connect straight to the WebDAV host.
+    return this.proxyMode === 'proxy' && !!this.proxyUrl
   }
 
   _getProxyPath() {
-    if (this.proxyMode === 'auto') {
-      // Auto mode always routes through the SAME-ORIGIN /api/dav/ endpoint. This is
-      // the deployment contract for every supported host:
-      //   - EdgeOne Makers: backed by the edge/cloud function at /api/dav/
-      //   - Self-hosted (OpenResty, Nginx, ...): a reverse proxy at /api/dav/
-      // Both are same-origin, so the browser never triggers CORS and no external
-      // proxy is needed. We deliberately IGNORE any previously-entered proxyUrl so
-      // a stale Cloudflare Worker address can never hijack auto mode.
-      return PROXY_PATH
-    }
-    if (this.proxyMode === 'proxy' && this.proxyUrl) {
-      return this.proxyUrl.replace(/\/+$/, '') + '/'
-    }
-    // proxy mode with no URL entered yet — fall back to same-origin best effort.
-    return PROXY_PATH
+    // Only ever called when _shouldUseProxy() returned true.
+    return this.proxyUrl.replace(/\/+$/, '') + '/'
   }
 
   _buildRequest(path) {
@@ -203,14 +187,9 @@ export class WebDavClient {
   }
 
   // Download a binary attachment. For large files we fetch in byte ranges so a
-  // single request never exceeds the EdgeOne gateway timeout (which caused 504s
-  // on big images proxied through the Cloud Function). Small files use one GET.
-  //
-  // No cache-busting path fragment is injected: the Cloud Function already
-  // responds to /attachments/ requests with `Cache-Control: no-store` (plus
-  // Accept-Ranges), so edge nodes never cache image bytes and every fetch pulls
-  // fresh from origin. After assembly we still verify the byte count against the
-  // HEAD Content-Length — a truncated body must never be persisted.
+  // single request never exceeds any gateway/proxy timeout. Small files use one
+  // GET. After assembly we still verify the byte count against the HEAD
+  // Content-Length — a truncated body must never be persisted.
   async downloadBlob(path, { chunkSize = 4 * 1024 * 1024 } = {}) {
     const head = await this.request('HEAD', path)
     const total = head.ok ? parseInt(head.headers.get('content-length') || '0', 10) : 0

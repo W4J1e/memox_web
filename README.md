@@ -4,12 +4,21 @@
 
 ![memoX\_web](./public/memox_web.jpg)
 
+![memoX\_web](./public/memox_web_dark.jpg)
+
+## 0819更新说明
+
+由于部分 WebDav 服务商不支持 CORS，此前尝试使用 Edgeone Makers 的 Cloud-Functions 代理，但即便我压缩了笔记图片依然存在同步问题频出的情况，因此本次更新跟上了安卓端的 OneDrive 同步功能，删除了 Cloud-Functions 函数。
+
+如你使用的 WebDav 也不支持 CORS，请参考根目录的`server.js`、`worker.js`在服务器或 cloudflare workers 自部署代理。
+
 ## 功能特性
 
 - **笔记与清单** — 创建文本笔记和待办清单，支持富文本编辑
 - **图片插入** — 在笔记中插入图片
 - **标签分类** — 使用标签管理和筛选笔记，支持隐藏标签
-- **WebDAV 同步** — 通过 WebDAV 服务器双向同步笔记和附件
+- **WebDAV 同步** — 通过 WebDAV 服务器双向同步笔记和附件（支持直连/代理两种连接模式）
+- **OneDrive 同步** — 通过 Microsoft Graph 直连 OneDrive，与 WebDav 共用同一目录结构
 - **深色模式** — 支持浅色、深色、跟随系统三种主题
 - **PIN 锁定** — 设置 PIN 码保护应用和加密笔记，可选启动时锁定
 - **数据导出** — 支持导出为 JSON 格式
@@ -29,7 +38,7 @@
 # 安装依赖
 npm install
 
-# 启动开发服务器（含内置 WebDAV 代理）
+# 启动开发服务器
 npm run dev
 
 # 构建生产版本
@@ -42,18 +51,20 @@ npm run build
 
 1. Fork 或导入此仓库
 2. 在 EdgeOne Makers 中导入该项目（会自动识别为 Vite 项目）
-3. 无需额外配置，直接部署。WebDAV 跨域代理由 `cloud-functions/api/dav/` 下的 Cloud Function 自动提供，无需再部署 Cloudflare Worker 或手动配置代理
+3. 无需额外配置，直接部署为纯静态站点即可
 
-> **注意**：受 EdgeOne Cloud Function 的限制（请求体上限 6MB、单次执行 120s，且所有 WebDAV 请求均需经函数中转回源），附件（图片等）的同步速度不算很理想，大附件首次同步需要一定的等待时间；笔记本身体积很小，同步速度不受影响。
+> 从2026年8月19日后，站点本身是纯静态应用，不再依赖任何服务端函数。WebDAV 同步在浏览器中直连服务器（直连模式）或经你自建的代理中转（代理模式）。
 
 ### 自托管服务器
 
 构建产物在 `dist/` 目录下，可部署到任意静态文件服务器。
 
-若 WebDAV 服务器不支持 CORS，需要部署反向代理：
+WebDAV 连接模式（在设置页中选择）：
 
-- 使用项目中的 `server.js` 代理服务器：`node server.js`
-- 或通过 nginx 配置反向代理
+- **直连模式**：浏览器直接访问 WebDAV 服务器，要求该服务器已开启 CORS
+- **代理模式**：通过代理服务中转，适用于服务器未开启 CORS 的场景：
+  - 使用项目中的 `server.js` 代理服务器：`node server.js`（默认端口 3001，同时托管 `dist/` 静态文件，代理端点为 `/__dav__/`）
+  - 在设置中填写代理地址（如 `http://your-host:3001/__dav__/`），客户端会将真实 WebDAV 地址通过 `X-WebDAV-Url` 请求头转发
 
 ## 数据兼容
 

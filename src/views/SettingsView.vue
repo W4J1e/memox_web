@@ -196,7 +196,7 @@
                 placeholder="https://your-proxy.example.com/dav/"
                 class="input-field"
               />
-              <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">请填写你自建的代理服务地址，客户端会将真实 WebDAV 地址通过 X-WebDAV-Url 请求头传递</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">填写你自建的代理服务地址，客户端会把真实 WebDAV 地址通过 <code>X-WebDAV-Url</code> 请求头转发（可运行本项目 <code>server.js</code> 或任意兼容该契约的代理）。</p>
             </div>
 
             <div class="flex gap-2 pt-2">
@@ -214,9 +214,8 @@
           <!-- CORS / Proxy info (WebDAV 面板内) -->
           <div class="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs">
             <p class="font-medium mb-1">关于连接模式</p>
-            <p><b>自动</b>：通过站点同源的 <code>/api/dav/</code> 接口连接，适用于 EdgeOne Makers（自带边缘函数）和自建服务器（需配置反向代理暴露 /api/dav/），无需填写任何地址。</p>
-            <p class="mt-1"><b>代理模式</b>：使用你自己的代理服务，需手动填写完整代理地址。</p>
-            <p class="mt-1"><b>直连模式</b>：直接访问 WebDAV 服务器，仅当该服务器开启了 CORS 时才可用，否则会因跨域而被浏览器拦截。</p>
+            <p><b>直连模式</b>：浏览器直接访问 WebDAV 服务器，无需任何额外配置；仅当该服务器已开启 CORS 时才可用，否则会被浏览器因跨域拦截。</p>
+            <p class="mt-1"><b>代理模式</b>：通过你自建的代理服务中转（需手动填写完整代理地址），由代理代发请求到 WebDAV，用于服务器未开启 CORS 的场景。</p>
           </div>
           </div>
 
@@ -312,7 +311,7 @@
         <section class="card p-4">
           <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">关于</h2>
           <div class="space-y-1 text-sm text-gray-600 dark:text-gray-400">
-            <p>memoX Web v1.2.0</p>
+            <p>memoX Web v1.3.0</p>
             <p>与 memoX Android 应用数据兼容</p>
             <p class="pt-2">作者：<a href="https://hin.cool" target="_blank" rel="noopener" class="text-green-600 dark:text-green-400 hover:underline">W4J1e</a></p>
             <p>仓库：<a href="https://github.com/W4J1e/memox_web" target="_blank" rel="noopener" class="text-green-600 dark:text-green-400 hover:underline">github/memox_web</a></p>
@@ -342,9 +341,8 @@ const themes = [
 ]
 
 const proxyModes = [
-  { value: 'auto', label: '自动' },
-  { value: 'proxy', label: '代理模式' },
   { value: 'direct', label: '直连模式' },
+  { value: 'proxy', label: '代理模式' },
 ]
 
 // OneDrive：与 WebDAV 二选一的同步后端
@@ -435,13 +433,12 @@ async function removePin() {
 }
 
 // WebDAV
-const webdavForm = ref({ url: '', username: '', password: '', proxyMode: 'auto', proxyUrl: '' })
+const webdavForm = ref({ url: '', username: '', password: '', proxyMode: 'direct', proxyUrl: '' })
 const testing = ref(false)
 const connResult = ref(null)
 
 const proxyModeHint = computed(() => {
   switch (webdavForm.value.proxyMode) {
-    case 'auto': return '自动通过当前站点同源的 /api/dav/ 接口连接（EdgeOne Makers 边缘函数、自建 OpenResty 反向代理均适用），无需任何配置'
     case 'proxy': return '通过你自建的代理服务访问 WebDAV，请填写完整的代理地址'
     case 'direct': return '直接连接 WebDAV 服务器，仅当该服务器允许跨域（CORS）时才可用，否则会连接失败'
     default: return ''
@@ -450,7 +447,7 @@ const proxyModeHint = computed(() => {
 
 function selectProxyMode(mode) {
   webdavForm.value.proxyMode = mode
-  // auto / direct 不使用自定义代理地址，清空任何残留值，避免它日后劫持 auto 模式
+  // 仅代理模式需要自定义地址，其余模式清空残留值，避免它日后被误用
   if (mode !== 'proxy') {
     webdavForm.value.proxyUrl = ''
   }
@@ -461,10 +458,11 @@ onMounted(() => {
     url: settingsStore.webdavUrl,
     username: settingsStore.webdavUsername,
     password: settingsStore.webdavPassword,
-    proxyMode: settingsStore.proxyMode,
+    // Coerce any legacy value (e.g. old 'auto') to a valid current mode.
+    proxyMode: (settingsStore.proxyMode === 'proxy' || settingsStore.proxyMode === 'direct') ? settingsStore.proxyMode : 'direct',
     // Only keep a stored proxy URL when actually in proxy mode; otherwise drop any
     // stale value (e.g. an old Cloudflare Worker prefill) so it can't linger.
-    proxyUrl: settingsStore.proxyMode === 'proxy' ? settingsStore.proxyUrl : '',
+    proxyUrl: settingsStore.proxyMode === 'proxy' ? (settingsStore.proxyUrl || '') : '',
   }
   // Reflect the latest provider + OneDrive sign-in state (e.g. when arriving here
   // straight after an OAuth redirect handled by App.vue).
@@ -550,7 +548,7 @@ function exportData() {
     notes: notesStore.notes,
     labels: notesStore.allLabels,
     exportTime: new Date().toISOString(),
-    version: '1.2.0-web',
+    version: '1.3.0-web',
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
