@@ -138,11 +138,56 @@
         </div>
       </div>
 
-      <!-- Footer: storage + theme toggle + settings -->
-      <div class="p-3 border-t border-gray-200 dark:border-gray-700 shrink-0 space-y-1">
+      <!-- Footer: theme toggle + storage + account/settings -->
+      <div class="p-3 border-t border-gray-200 dark:border-gray-700 shrink-0 space-y-2">
+        <!-- Theme toggle switch -->
+        <div class="flex items-center justify-center">
+          <button
+            @click="toggleTheme"
+            class="relative w-12 h-7 rounded-full bg-gray-200 dark:bg-gray-600 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shrink-0"
+            :title="settingsStore.theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
+            aria-label="切换深浅色模式"
+          >
+            <!-- sun icon (left, light side) -->
+            <svg
+              class="absolute left-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 dark:text-gray-400 transition-colors"
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+            <!-- moon icon (right, dark side) -->
+            <svg
+              class="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-300 transition-colors"
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+            <!-- sliding thumb -->
+            <span
+              class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white dark:bg-gray-300 shadow-md transition-transform duration-300 flex items-center justify-center"
+              :class="settingsStore.theme === 'dark' ? 'translate-x-5' : 'translate-x-0'"
+            >
+              <svg
+                v-if="settingsStore.theme === 'dark'"
+                class="w-3.5 h-3.5 text-indigo-600"
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+              <svg
+                v-else
+                class="w-3.5 h-3.5 text-amber-500"
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </span>
+          </button>
+        </div>
+
         <!-- Storage usage -->
-        <div v-if="!sidebarCollapsed && storageQuota" class="px-3 pb-2 mb-1">
-          <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+        <div v-if="!sidebarCollapsed && storageQuota" class="px-1 pb-1">
+          <div class="flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 mb-1">
             <span>存储使用</span>
             <span>{{ formatBytes(storageQuota.usedBytes) }} / {{ formatBytes(storageQuota.totalBytes) }}</span>
           </div>
@@ -153,32 +198,79 @@
             ></div>
           </div>
         </div>
-        <button
-          @click="toggleTheme"
-          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          :title="settingsStore.theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'"
-        >
-          <svg v-if="settingsStore.theme === 'dark'" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-          </svg>
-          <svg v-else class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-          </svg>
-          <span v-if="!sidebarCollapsed" class="text-sm">{{ settingsStore.theme === 'dark' ? '浅色模式' : '深色模式' }}</span>
-        </button>
-        <router-link
-          to="/settings"
-          class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
-          :class="sidebarCollapsed ? 'justify-center' : ''"
-          title="设置"
-        >
-          <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span v-if="!sidebarCollapsed" class="text-sm">设置</span>
-        </router-link>
+        <!-- Account / provider row (bottom): avatar chip + settings icon -->
+        <div class="relative">
+          <div
+            v-if="showProviderMenu"
+            class="fixed inset-0 z-40"
+            @click="showProviderMenu = false"
+          ></div>
+          <div
+            class="flex items-center"
+            :class="sidebarCollapsed ? 'justify-center gap-1' : 'gap-2'"
+          >
+            <!-- avatar chip: click to switch provider -->
+            <button
+              @click="toggleProviderMenu"
+              class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors min-w-0"
+              :class="sidebarCollapsed ? '' : 'flex-1'"
+              :title="providerLabel"
+            >
+              <img v-if="providerAvatarUrl" :src="providerAvatarUrl" class="w-7 h-7 rounded-full object-cover shrink-0" alt="" />
+              <span
+                v-else
+                class="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0"
+              >
+                <svg v-if="settingsStore.syncProvider === 'onedrive'" class="w-4 h-4" viewBox="0 0 23 23" fill="currentColor"><path d="M10.7 4.3c.4 0 .8.2 1 .6.2-.1.5-.2.7-.2 1.9 0 3.2 1.6 3.2 3.4 0 .2 0 .4-.1.6 1.1.3 2 1.3 2 2.6 0 1.5-1.2 2.7-2.7 2.7H7.9c-2 0-3.6-1.6-3.6-3.6 0-1.7 1.2-3.1 2.8-3.5.3-1.9 1.9-3.3 3.9-3.3.3 0 .5 0 .7.1.3-.4.8-.6 1.2-.6z"/></svg>
+                <svg v-else class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 15a4 4 0 004 4h10a4 4 0 000-8 5 5 0 00-9.6-1.5A4 4 0 003 15z" /></svg>
+              </span>
+              <span v-if="!sidebarCollapsed" class="text-sm text-gray-700 dark:text-gray-300 truncate flex-1 text-left">{{ providerLabel }}</span>
+              <svg v-if="!sidebarCollapsed" class="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+
+            <!-- settings icon (rightmost) -->
+            <router-link
+              to="/settings"
+              class="p-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors shrink-0"
+              title="设置"
+              @click="showProviderMenu = false"
+            >
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </router-link>
+          </div>
+
+          <!-- provider switch dropdown -->
+          <div
+            v-if="showProviderMenu"
+            class="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl p-1.5"
+          >
+            <button
+              @click="switchProvider('webdav')"
+              class="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors text-sm"
+              :class="settingsStore.syncProvider === 'webdav' ? 'text-indigo-600 dark:text-indigo-400 font-medium' : 'text-gray-700 dark:text-gray-300'"
+            >
+              <span class="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 15a4 4 0 004 4h10a4 4 0 000-8 5 5 0 00-9.6-1.5A4 4 0 003 15z" /></svg>
+              </span>
+              <span class="flex-1 text-left">WebDAV 同步</span>
+              <svg v-if="settingsStore.syncProvider === 'webdav'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+            </button>
+            <button
+              @click="switchProvider('onedrive')"
+              class="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors text-sm"
+              :class="settingsStore.syncProvider === 'onedrive' ? 'text-indigo-600 dark:text-indigo-400 font-medium' : 'text-gray-700 dark:text-gray-300'"
+            >
+              <span class="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 23 23" fill="currentColor"><path d="M10.7 4.3c.4 0 .8.2 1 .6.2-.1.5-.2.7-.2 1.9 0 3.2 1.6 3.2 3.4 0 .2 0 .4-.1.6 1.1.3 2 1.3 2 2.6 0 1.5-1.2 2.7-2.7 2.7H7.9c-2 0-3.6-1.6-3.6-3.6 0-1.7 1.2-3.1 2.8-3.5.3-1.9 1.9-3.3 3.9-3.3.3 0 .5 0 .7.1.3-.4.8-.6 1.2-.6z"/></svg>
+              </span>
+              <span class="flex-1 text-left">OneDrive 同步</span>
+              <svg v-if="settingsStore.syncProvider === 'onedrive'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -693,9 +785,11 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onUnmounted, onMounted, reactive } from 'vue'
+import { useRouter } from 'vue-router'
 import { useNotesStore } from '../stores/notes'
 import { useSettingsStore } from '../stores/settings'
 import { useLockStore } from '../stores/lock'
+import { isOneDriveSignedIn, getOneDriveAccount, getOneDriveAccountPhoto } from '../utils/onedrive-auth'
 import NoteCard from '../components/NoteCard.vue'
 import NavItem from '../components/NavItem.vue'
 import LabelItem from '../components/LabelItem.vue'
@@ -754,6 +848,45 @@ const createdPreviewUrls = new Set()
 const listThumbnails = ref({})
 const createdListThumbnails = new Set()
 const storageQuota = ref(null)
+
+// ---- Account / provider chip in the sidebar footer ----
+const router = useRouter()
+const showProviderMenu = ref(false)
+const oneDriveSignedIn = ref(isOneDriveSignedIn())
+const providerAvatarUrl = ref('')
+
+const providerLabel = computed(() => {
+  if (settingsStore.syncProvider === 'onedrive') {
+    return oneDriveSignedIn.value ? (getOneDriveAccount() || 'Microsoft 账户') : 'OneDrive 未登录'
+  }
+  return 'WebDAV'
+})
+
+async function loadProviderAvatar() {
+  if (settingsStore.syncProvider === 'onedrive' && oneDriveSignedIn.value) {
+    providerAvatarUrl.value = await getOneDriveAccountPhoto()
+  } else {
+    providerAvatarUrl.value = ''
+  }
+}
+
+function toggleProviderMenu() {
+  showProviderMenu.value = !showProviderMenu.value
+}
+
+async function switchProvider(p) {
+  showProviderMenu.value = false
+  if (settingsStore.syncProvider === p) return
+  // Picking OneDrive without a signed-in account → jump to settings to sign in.
+  if (p === 'onedrive' && !isOneDriveSignedIn()) {
+    router.push('/settings')
+    return
+  }
+  await settingsStore.saveSyncProvider(p)
+  oneDriveSignedIn.value = isOneDriveSignedIn()
+  await loadProviderAvatar()
+  await loadStorageQuota()
+}
 
 // Rich text editing state
 const editingTitle = ref('')
@@ -1418,10 +1551,11 @@ watch(displayedNotes, () => {
 }, { immediate: true, deep: false })
 
 async function loadStorageQuota() {
-  if (!settingsStore.webdavUrl) return
   try {
     const client = await settingsStore.getClient()
-    if (!client) return
+    // Guard against clients that don't expose quota (e.g. a provider without
+    // support) so we never crash with "client.getQuota is not a function".
+    if (!client || typeof client.getQuota !== 'function') return
     const quota = await client.getQuota()
     if (quota) {
       storageQuota.value = quota
@@ -2263,6 +2397,8 @@ function normalizeSpansForCompare(spans, body) {
 }
 
 onMounted(() => {
+  oneDriveSignedIn.value = isOneDriveSignedIn()
+  loadProviderAvatar()
   loadStorageQuota()
   // Global Ctrl+K / Cmd+K to focus search
   function onGlobalKeydown(e) {

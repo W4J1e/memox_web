@@ -123,9 +123,24 @@
           </div>
         </section>
 
-        <!-- WebDAV -->
+        <!-- 同步设置：WebDAV / OneDrive 二选一 -->
         <section class="card p-4">
-          <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">WebDAV 同步</h2>
+          <!-- 标签页标题（左右切换，仅切内容不切路由） -->
+          <div class="flex border-b border-gray-200 dark:border-gray-700 mb-4 -mt-1">
+            <button
+              @click="selectProvider('webdav')"
+              class="flex-1 pb-2 text-sm font-medium border-b-2 -mb-px transition-colors"
+              :class="syncProvider === 'webdav' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'"
+            >WebDAV 同步</button>
+            <button
+              @click="selectProvider('onedrive')"
+              class="flex-1 pb-2 text-sm font-medium border-b-2 -mb-px transition-colors"
+              :class="syncProvider === 'onedrive' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 dark:text-gray-400'"
+            >OneDrive 同步</button>
+          </div>
+
+          <!-- WebDAV 面板 -->
+          <div v-if="syncProvider === 'webdav'">
           <div class="space-y-3">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400 mb-1 block">服务器地址</label>
@@ -196,8 +211,39 @@
             </div>
           </div>
 
-          <!-- Sync actions -->
-          <div v-if="settingsStore.webdavUrl" class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <!-- CORS / Proxy info (WebDAV 面板内) -->
+          <div class="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs">
+            <p class="font-medium mb-1">关于连接模式</p>
+            <p><b>自动</b>：通过站点同源的 <code>/api/dav/</code> 接口连接，适用于 EdgeOne Makers（自带边缘函数）和自建服务器（需配置反向代理暴露 /api/dav/），无需填写任何地址。</p>
+            <p class="mt-1"><b>代理模式</b>：使用你自己的代理服务，需手动填写完整代理地址。</p>
+            <p class="mt-1"><b>直连模式</b>：直接访问 WebDAV 服务器，仅当该服务器开启了 CORS 时才可用，否则会因跨域而被浏览器拦截。</p>
+          </div>
+          </div>
+
+          <!-- OneDrive 面板 -->
+          <div v-else>
+            <div class="space-y-3">
+              <p class="text-sm text-gray-600 dark:text-gray-400">使用 Microsoft OneDrive 同步，无需配置服务器。登录后与 memoX 安卓端共享同一份笔记（同一棵 memoX/ 目录树）。</p>
+              <div v-if="onedriveSignedIn">
+                <div class="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-sm">
+                  <img v-if="onedrivePhotoUrl" :src="onedrivePhotoUrl" class="w-6 h-6 rounded-full object-cover shrink-0" alt="" />
+                  <svg v-else class="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.3l6.5 3.6L12 11.5 5.5 7.9 12 4.3zM5 9.2l6 3.3v6.2l-6-3.3V9.2zm14 0v6.2l-6 3.3V12.5l6-3.3z"/></svg>
+                  <span class="truncate">已登录：{{ onedriveAccount || 'Microsoft 账户' }}</span>
+                </div>
+                <button @click="disconnectOneDrive" class="btn-secondary mt-3 w-full">退出 OneDrive 登录</button>
+              </div>
+              <div v-else>
+                <button @click="connectOneDrive" class="btn-primary w-full flex items-center justify-center gap-2">
+                  <svg class="w-5 h-5" viewBox="0 0 23 23" fill="currentColor"><path d="M10.7 4.3c.4 0 .8.2 1 .6.2-.1.5-.2.7-.2 1.9 0 3.2 1.6 3.2 3.4 0 .2 0 .4-.1.6 1.1.3 2 1.3 2 2.6 0 1.5-1.2 2.7-2.7 2.7H7.9c-2 0-3.6-1.6-3.6-3.6 0-1.7 1.2-3.1 2.8-3.5.3-1.9 1.9-3.3 3.9-3.3.3 0 .5 0 .7.1.3-.4.8-.6 1.2-.6z"/></svg>
+                  使用 Microsoft 账号登录
+                </button>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-2">首次登录请允许 memoX 访问你的 OneDrive 文件。登录后会自动跳回本页。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 共享同步操作 -->
+          <div v-if="activeSyncConfigured" class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <p class="text-sm text-gray-500 dark:text-gray-400 mb-3" v-if="settingsStore.lastSyncTime">
               上次同步：{{ formatSyncTime(settingsStore.lastSyncTime) }}
             </p>
@@ -209,14 +255,6 @@
               <button @click="doDownload" :disabled="settingsStore.syncStatus === 'syncing'" class="btn-secondary flex-1">下载</button>
             </div>
           </div>
-
-          <!-- CORS / Proxy info -->
-            <div class="mt-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 text-xs">
-              <p class="font-medium mb-1">关于连接模式</p>
-              <p><b>自动</b>：通过站点同源的 <code>/api/dav/</code> 接口连接，适用于 EdgeOne Makers（自带边缘函数）和自建服务器（需配置反向代理暴露 /api/dav/），无需填写任何地址。</p>
-              <p class="mt-1"><b>代理模式</b>：使用你自己的代理服务，需手动填写完整代理地址。</p>
-              <p class="mt-1"><b>直连模式</b>：直接访问 WebDAV 服务器，仅当该服务器开启了 CORS 时才可用，否则会因跨域而被浏览器拦截。</p>
-            </div>
         </section>
 
         <!-- Data management -->
@@ -291,6 +329,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { useNotesStore } from '../stores/notes'
 import { useLockStore } from '../stores/lock'
+import { startOAuthSignIn, signOutOneDrive, isOneDriveSignedIn, getOneDriveAccount, getOneDriveAccountPhoto } from '../utils/onedrive-auth'
 
 const settingsStore = useSettingsStore()
 const notesStore = useNotesStore()
@@ -307,6 +346,34 @@ const proxyModes = [
   { value: 'proxy', label: '代理模式' },
   { value: 'direct', label: '直连模式' },
 ]
+
+// OneDrive：与 WebDAV 二选一的同步后端
+const syncProvider = ref(settingsStore.syncProvider)
+const onedriveSignedIn = ref(isOneDriveSignedIn())
+const onedriveAccount = ref(getOneDriveAccount())
+const onedrivePhotoUrl = ref('')
+
+async function refreshOneDriveAccount() {
+  onedriveSignedIn.value = isOneDriveSignedIn()
+  onedriveAccount.value = getOneDriveAccount()
+  onedrivePhotoUrl.value = onedriveSignedIn.value ? (await getOneDriveAccountPhoto()) : ''
+}
+// 底部共享的「双向同步/上传/下载」按钮只在该 provider 已配置时显示
+const activeSyncConfigured = computed(() =>
+  syncProvider.value === 'onedrive' ? onedriveSignedIn.value : !!settingsStore.webdavUrl
+)
+function selectProvider(p) {
+  syncProvider.value = p
+  settingsStore.saveSyncProvider(p)
+}
+function connectOneDrive() {
+  // 整页跳转到 Microsoft 登录，回调由 App.vue 捕获
+  startOAuthSignIn()
+}
+function disconnectOneDrive() {
+  signOutOneDrive()
+  refreshOneDriveAccount()
+}
 
 // PIN
 const newPin = ref('')
@@ -399,6 +466,10 @@ onMounted(() => {
     // stale value (e.g. an old Cloudflare Worker prefill) so it can't linger.
     proxyUrl: settingsStore.proxyMode === 'proxy' ? settingsStore.proxyUrl : '',
   }
+  // Reflect the latest provider + OneDrive sign-in state (e.g. when arriving here
+  // straight after an OAuth redirect handled by App.vue).
+  syncProvider.value = settingsStore.syncProvider
+  refreshOneDriveAccount()
 })
 
 async function saveWebdav() {

@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getSetting, putSetting, getAttachment, putAttachment } from '../utils/storage'
 import { WebDavClient } from '../utils/webdav-client'
+import { OneDriveClient } from '../utils/onedrive-client'
+import { isOneDriveSignedIn } from '../utils/onedrive-auth'
 import { noteToJson, jsonToNote, extractNoteId, noteFileName, getImageFileName, getAllImageFileNames, getAllAttachmentFileNames } from '../utils/note-parser'
 import { useNotesStore } from './notes'
 
@@ -10,6 +12,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const webdavUsername = ref('')
   const webdavPassword = ref('')
   const proxyMode = ref('auto') // auto | proxy | direct
+  // Which backend sync()/upload()/download() talk to. 'webdav' (default) keeps
+  // the legacy behaviour; 'onedrive' routes through Microsoft Graph directly.
+  const syncProvider = ref('webdav')
   const proxyUrl = ref('')
   const theme = ref('system')
   const notesView = ref('grid')
@@ -44,6 +49,7 @@ export const useSettingsStore = defineStore('settings', () => {
     webdavUrl.value = await getSetting('webdav_url', '')
     webdavUsername.value = await getSetting('webdav_username', '')
     webdavPassword.value = await getSetting('webdav_password', '')
+    syncProvider.value = await getSetting('syncProvider', 'webdav')
     proxyMode.value = await getSetting('proxy_mode', 'auto')
     proxyUrl.value = await getSetting('proxy_url', '')
     theme.value = await getSetting('theme', 'system')
@@ -74,6 +80,11 @@ export const useSettingsStore = defineStore('settings', () => {
     await putSetting(DIRS_ENSURED_KEY, '')
   }
 
+  async function saveSyncProvider(p) {
+    syncProvider.value = p
+    await putSetting('syncProvider', p)
+  }
+
   async function saveTheme(t) {
     theme.value = t
     await putSetting('theme', t)
@@ -101,6 +112,10 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function getClient() {
+    if (syncProvider.value === 'onedrive') {
+      if (!isOneDriveSignedIn()) return null
+      return new OneDriveClient()
+    }
     if (!webdavUrl.value) return null
     const opts = { proxyMode: proxyMode.value }
     // Only forward a custom proxy URL in proxy mode. In auto/direct it must stay
@@ -110,10 +125,13 @@ export const useSettingsStore = defineStore('settings', () => {
     return new WebDavClient(webdavUrl.value, webdavUsername.value, webdavPassword.value, opts)
   }
 
-  // Ensure the memoX/ directory tree exists, but only once per WebDAV server.
-  // After the first successful creation we persist the server URL and skip the
-  // (slow, proxy-bound) MKCOL round-trips on all later syncs.
+  // Ensure the memoX/ directory tree exists. For WebDAV this is done once per
+  // server (cached in DIRS_ENSURED_KEY). For OneDrive, Graph auto-creates parent
+  // folders on every content upload, so pre-creating the tree is both redundant
+  // and noisy (it used to emit a 409 Conflict per directory every sync). We skip
+  // it entirely — uploads create parents, and listFiles tolerates missing dirs.
   async function ensureDirsOnce(client) {
+    if (syncProvider.value === 'onedrive') return
     const ensuredFor = await getSetting(DIRS_ENSURED_KEY, '')
     if (ensuredFor === webdavUrl.value) return
     await client.ensureDirectories()
@@ -342,10 +360,14 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function testConnection() {
     const client = getClient()
-    if (!client) throw new Error('WebDAV 未配置')
+    if (!client) throw new Error(syncProvider.value === 'onedrive' ? 'OneDrive 未登录' : 'WebDAV 未配置')
     const ok = await client.testConnection()
-    if (!ok) throw new Error('连接失败，请检查地址、用户名、密码及代理设置')
-    await client.ensureDirectories()
+    if (!ok) throw new Error(syncProvider.value === 'onedrive' ? 'OneDrive 连接失败，请检查账号或网络' : '连接失败，请检查地址、用户名、密码及代理设置')
+    // OneDrive auto-creates folders on upload, so skip ensureDirectories there
+    // to avoid spurious 409s in the console.
+    if (syncProvider.value !== 'onedrive') {
+      await client.ensureDirectories()
+    }
     return true
   }
 
@@ -382,7 +404,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function sync() {
     const client = getClient()
-    if (!client) throw new Error('WebDAV 未配置')
+    if (!client) throw new Error(syncProvider.value === 'onedrive' ? 'OneDrive 未登录' : 'WebDAV 未配置')
     const notesStore = useNotesStore()
 
     syncStatus.value = 'syncing'
@@ -538,8 +560,6 @@ export const useSettingsStore = defineStore('settings', () => {
         }
       }
 
-      await cleanupAttachments(client)
-
       const allNoteIds = notesStore.notes.map(n => n.id).sort()
       const syncMeta = {
         lastSyncTime: Date.now(),
@@ -574,23 +594,22 @@ export const useSettingsStore = defineStore('settings', () => {
       await putSetting('tombstones', mergedTombstones)
       await putSetting('lastSyncTime', lastSyncTime.value)
 
-      // Build the remote attachment index ONCE and reuse it for both upload and
-      // download skip checks (Android builds it once in loadRemoteAttachmentIndex).
-      // Only skip the whole attachment pass when no note references any attachment —
-      // then there is nothing to push/pull and we save the three PROPFIND index
-      // requests against the (slow) proxy. When attachments ARE referenced we still
-      // run the pass, but uploadAttachments/syncAttachments skip transfers by
-      // comparing file size (Android parity), so unchanged attachments cost nothing.
+      // Reconcile attachments on EVERY sync: build the remote index once, push
+      // local files up, pull missing ones down, then garbage-collect anything no
+      // longer referenced by any local note. This covers both deleted notes AND
+      // images removed while editing a note (Android parity) — previously only
+      // note-deletion orphans were cleaned, so an image deleted inline stayed on
+      // the server forever. We always run it (even when nothing is referenced
+      // locally) so a fully-cleared note's attachments get purged too.
       const referencedAttachments = new Set()
       for (const n of notesStore.notes) {
         for (const fn of getAllAttachmentFileNames(n)) referencedAttachments.add(fn)
       }
 
-      if (referencedAttachments.size > 0) {
-        const attachmentIndex = await buildRemoteAttachmentIndex(client)
-        await uploadAttachments(client, notesStore.notes, attachmentIndex)
-        await syncAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'), attachmentIndex)
-      }
+      const attachmentIndex = await buildRemoteAttachmentIndex(client)
+      await uploadAttachments(client, notesStore.notes, attachmentIndex)
+      await syncAttachments(client, notesStore.notes.filter(n => n.folder !== 'DELETED'), attachmentIndex)
+      await garbageCollectAttachments(client, attachmentIndex, referencedAttachments)
 
       syncStatus.value = 'success'
       syncMessage.value = `同步完成：上传 ${toUpload.length}，下载 ${toDownload.length}`
@@ -603,7 +622,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function upload() {
     const client = getClient()
-    if (!client) throw new Error('WebDAV 未配置')
+    if (!client) throw new Error(syncProvider.value === 'onedrive' ? 'OneDrive 未登录' : 'WebDAV 未配置')
     const notesStore = useNotesStore()
 
     syncStatus.value = 'syncing'
@@ -651,7 +670,19 @@ export const useSettingsStore = defineStore('settings', () => {
         }
       }
 
-      await cleanupAttachments(client)
+      // One-way upload: only purge attachments of locally-deleted notes (the
+      // pending list). We deliberately do NOT scan the full remote index here —
+      // an upload must not destroy attachments belonging to notes that exist only
+      // on the server. (Bidirectional sync() handles inline-removed-image orphans
+      // via garbageCollectAttachments, which is safe there because it has already
+      // pulled every remote note into the local set.)
+      for (const name of pendingAttachmentCleanup.value) {
+        for (const dir of ['memoX/attachments/images/', 'memoX/attachments/audios/', 'memoX/attachments/files/']) {
+          try { await client.delete(`${dir}${name}`) } catch {}
+        }
+      }
+      pendingAttachmentCleanup.value = []
+      await putSetting('pendingAttachmentCleanup', [])
 
       const activeNoteIds = localNotes.filter(n => !tombstones.value.includes(n.id)).map(n => n.id).sort()
       const syncMeta = {
@@ -681,7 +712,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function download() {
     const client = getClient()
-    if (!client) throw new Error('WebDAV 未配置')
+    if (!client) throw new Error(syncProvider.value === 'onedrive' ? 'OneDrive 未登录' : 'WebDAV 未配置')
     const notesStore = useNotesStore()
 
     syncStatus.value = 'syncing'
@@ -731,23 +762,27 @@ export const useSettingsStore = defineStore('settings', () => {
     await putSetting('pendingAttachmentCleanup', merged)
   }
 
-  // Remove attachment files from the remote store that are no longer referenced by
-  // any active (non-deleted) local note. Skips files still used by other notes so a
-  // shared attachment is never deleted prematurely. Retries on the next sync if the
-  // remote delete fails (the pending list is only cleared after a successful attempt).
-  async function cleanupAttachments(client) {
-    if (!pendingAttachmentCleanup.value.length) return
-    const pending = [...pendingAttachmentCleanup.value]
+  // Garbage-collect remote attachment files that are no longer referenced by any
+  // local note. Two sources feed the delete set:
+  //   1. pendingAttachmentCleanup — names queued when a note was deleted (the old
+  //      cleanupAttachments behaviour).
+  //   2. any file present in the remote index but NOT in `referenced` — this is the
+  //      important new case: an image removed by *editing* a note (not deleting it)
+  //      is never queued, yet its file lingers on the server. Scanning the index
+  //      against the current reference set removes it (Android parity).
+  // A file referenced by any local note is always preserved, so shared attachments
+  // are never deleted prematurely. The pending list clears only after a full pass.
+  async function garbageCollectAttachments(client, index, referenced) {
+    const dirs = ['memoX/attachments/images/', 'memoX/attachments/audios/', 'memoX/attachments/files/']
 
-    const notesStore = useNotesStore()
-    const referenced = new Set()
-    for (const n of notesStore.notes) {
-      for (const fn of getAllAttachmentFileNames(n)) referenced.add(fn)
+    const toDelete = new Set(pendingAttachmentCleanup.value)
+    for (const key of ['images', 'audios', 'files']) {
+      for (const name of index[key].keys()) {
+        if (!referenced.has(name)) toDelete.add(name)
+      }
     }
 
-    const dirs = ['memoX/attachments/images/', 'memoX/attachments/audios/', 'memoX/attachments/files/']
-    for (const name of pending) {
-      if (referenced.has(name)) continue
+    for (const name of toDelete) {
       for (const dir of dirs) {
         try {
           await client.delete(`${dir}${name}`)
@@ -762,7 +797,11 @@ export const useSettingsStore = defineStore('settings', () => {
   let autoSyncTimer = null
 
   async function autoSync() {
-    if (!webdavUrl.value) return
+    if (syncProvider.value === 'onedrive') {
+      if (!isOneDriveSignedIn()) return
+    } else {
+      if (!webdavUrl.value) return
+    }
     if (syncStatus.value === 'syncing') return
     try {
       await sync()
@@ -883,6 +922,7 @@ export const useSettingsStore = defineStore('settings', () => {
     webdavPassword,
     proxyMode,
     proxyUrl,
+    syncProvider,
     theme,
     notesView,
     syncStatus,
@@ -896,6 +936,7 @@ export const useSettingsStore = defineStore('settings', () => {
     revealHiddenFolders,
     loadSettings,
     saveWebdavSettings,
+    saveSyncProvider,
     saveTheme,
     saveNotesView,
     applyTheme,
